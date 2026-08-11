@@ -1,0 +1,116 @@
+{
+  "schema_version": 2,
+  "roster": {
+    "ai_count": 3,
+    "starter": ["ren", "momo", "sou"],
+    "unlock": ["mio"]
+  },
+  "characters": [
+    {
+      "id": "ren",
+      "name": "レン",
+      "archetype": "HONEST",
+      "portrait": "char_ren.png",
+      "source_image": "4631.png",
+      "voice_id": "cheerful",
+      "lie_timing": "RANDOM",
+      "base_lie_rate": 0.12,
+      "situation_weights": {
+        "stakes": 0.0,
+        "elimination_risk": 0.3,
+        "score_gap": 0.2,
+        "endgame": 0.4
+      },
+      "presentation": {
+        "honest": { "low": 0.75, "mid": 0.20, "high": 0.05 },
+        "lie":    { "low": 0.10, "mid": 0.25, "high": 0.65 }
+      }
+    },
+    {
+      "id": "momo",
+      "name": "モモ",
+      "archetype": "OVERACT",
+      "portrait": "char_momo.png",
+      "source_image": "4630.png",
+      "voice_id": "polite",
+      "lie_timing": "CORNERED",
+      "base_lie_rate": 0.28,
+      "situation_weights": {
+        "stakes": 0.4,
+        "elimination_risk": 1.6,
+        "score_gap": 0.8,
+        "endgame": 1.2
+      },
+      "presentation": {
+        "honest": { "low": 0.20, "mid": 0.30, "high": 0.50 },
+        "lie":    { "low": 0.35, "mid": 0.35, "high": 0.30 }
+      }
+    },
+    {
+      "id": "sou",
+      "name": "ソウ",
+      "archetype": "BAIT",
+      "portrait": "char_sou.png",
+      "source_image": "4632.png",
+      "voice_id": "blunt",
+      "lie_timing": "TRIVIAL",
+      "base_lie_rate": 0.42,
+      "situation_weights": {
+        "stakes": -1.4,
+        "elimination_risk": -0.3,
+        "score_gap": 0.0,
+        "endgame": -0.5
+      },
+      "presentation": {
+        "honest": { "low": 0.45, "mid": 0.40, "high": 0.15 },
+        "lie":    { "low": 0.15, "mid": 0.30, "high": 0.55 }
+      }
+    },
+    {
+      "id": "mio",
+      "name": "ミオ",
+      "archetype": "FLAT",
+      "portrait": "char_mio.png",
+      "source_image": "4622.png",
+      "voice_id": "cool",
+      "lie_timing": "RANDOM",
+      "base_lie_rate": 0.20,
+      "situation_weights": {
+        "stakes": 0.2,
+        "elimination_risk": 0.4,
+        "score_gap": 0.3,
+        "endgame": 0.3
+      },
+      "presentation": {
+        "honest": { "low": 0.34, "mid": 0.33, "high": 0.33 },
+        "lie":    { "low": 0.33, "mid": 0.34, "high": 0.33 }
+      }
+    }
+  ],
+  "mobs": [
+    {
+      "id": "mob_a",
+      "name": "参加者A",
+      "base": "sou",
+      "intensity_scale": 0.4,
+      "voice_id": "blunt",
+      "portrait": "char_mob_a.png"
+    },
+    {
+      "id": "mob_b",
+      "name": "参加者B",
+      "base": "momo",
+      "intensity_scale": 0.4,
+      "voice_id": "polite",
+      "portrait": "char_mob_b.png"
+    },
+    {
+      "id": "mob_c",
+      "name": "参加者C",
+      "base": "ren",
+      "intensity_scale": 0.5,
+      "voice_id": "cheerful",
+      "portrait": "char_mob_c.png"
+    }
+  ]
+}

@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "game_id": "yokoku_janken",
+  "claims": ["グー", "チョキ", "パー"],
+  "intents": ["DECLARE", "PERSUADE", "ACCUSE", "DEFEND"],
+  "slots": ["{claim}", "{target}"],
+  "voices": {
+    "polite": {
+      "DECLARE": {
+        "low":  ["たぶん{claim}にします", "{claim}…かなと思います", "{claim}あたりでしょうか"],
+        "mid":  ["{claim}でいきます", "わたしは{claim}です", "{claim}に決めました"],
+        "high": ["絶対に{claim}です。変えません", "{claim}以外は選びません", "{claim}です。信じてください"]
+      },
+      "PERSUADE": {
+        "low":  ["{target}さんは{claim}が良いかもしれません", "{target}さん、{claim}はどうでしょう", "{claim}も悪くないと思いますよ"],
+        "mid":  ["{target}さんは{claim}にすべきです", "{claim}が一番安全ですよ、{target}さん", "{target}さん、{claim}でいきましょう"],
+        "high": ["{target}さん、{claim}以外に道はありません", "{claim}にしてください。それが正しいです", "絶対に{claim}です。間違いありません"]
+      },
+      "ACCUSE": {
+        "low":  ["{target}さん、少し気になります", "{target}さんの言葉、引っかかります", "本当にそうでしょうか、{target}さん"],
+        "mid":  ["{target}さんは違う手を出しますね", "{target}さんの予告は疑わしいです", "{target}さん、正直に言ってください"],
+        "high": ["{target}さんは嘘をついています", "{target}さんの言葉は信用できません", "{target}さん、もう分かっています"]
+      },
+      "DEFEND": {
+        "low":  ["わたしはそのままです", "特に隠していませんよ", "そう見えますか…"],
+        "mid":  ["言った通りにします", "疑われる理由がありません", "わたしは変えません"],
+        "high": ["絶対に嘘ではありません", "疑うなら結果を見てください", "わたしを疑うのは間違いです"]
+      }
+    },
+    "blunt": {
+      "DECLARE": {
+        "low":  ["{claim}かな", "まあ{claim}だ", "{claim}でいいや"],
+        "mid":  ["{claim}でいく", "おれは{claim}だ", "{claim}。決めた"],
+        "high": ["絶対{claim}。変えねえ", "{claim}以外ありえん", "{claim}だ。文句あるか"]
+      },
+      "PERSUADE": {
+        "low":  ["{target}は{claim}でいいんじゃないか", "{claim}にしとけ、{target}", "{target}、{claim}も悪くないぞ"],
+        "mid":  ["{target}は{claim}にしろ", "{claim}だ、{target}。それが得だ", "{target}、{claim}以外は損する"],
+        "high": ["{target}、{claim}にしろ。それしかない", "{claim}だ。ほかは全部間違いだ", "{target}が{claim}じゃなきゃ話にならん"]
+      },
+      "ACCUSE": {
+        "low":  ["{target}、怪しいな", "{target}の言い方が気になる", "本当かよ、{target}"],
+        "mid":  ["{target}は違う手を出すぞ", "{target}の予告は嘘だ", "{target}、正直に言え"],
+        "high": ["{target}、嘘だろ。分かってる", "{target}の言うことは信じられん", "{target}、そこまでだ"]
+      },
+      "DEFEND": {
+        "low":  ["そのままだよ", "別に隠してない", "そう見えるか"],
+        "mid":  ["言った通りにする", "疑う理由がない", "変えねえよ"],
+        "high": ["嘘じゃない。絶対だ", "疑うなら見てろ", "おれを疑うのは間違いだ"]
+      }
+    },
+    "cheerful": {
+      "DECLARE": {
+        "low":  ["{claim}かなー", "んー、{claim}にしよっかな", "{claim}っぽい気分"],
+        "mid":  ["{claim}でいくよー", "わたしは{claim}!", "{claim}に決めた!"],
+        "high": ["ぜっったい{claim}!変えないから!", "{claim}以外ないでしょ!", "{claim}だってば!ほんとだよ!"]
+      },
+      "PERSUADE": {
+        "low":  ["{target}は{claim}がいいと思うなー", "{target}、{claim}どう?", "{claim}もアリじゃない?{target}"],
+        "mid":  ["{target}は{claim}にしなよー", "{claim}が安全だって、{target}", "{target}、{claim}でいこ!"],
+        "high": ["{target}、{claim}以外ムリだって!", "{claim}にして!ぜったいそう!", "{target}が{claim}じゃないと困る!"]
+      },
+      "ACCUSE": {
+        "low":  ["{target}、なんか怪しくない?", "{target}の言い方、ひっかかるなー", "ほんとにー?{target}"],
+        "mid":  ["{target}は違う手出すでしょ", "{target}の予告、嘘っぽい", "{target}、正直に言って?"],
+        "high": ["{target}、嘘ついてるでしょ!", "{target}のことは信じられない!", "{target}、もうバレてるから!"]
+      },
+      "DEFEND": {
+        "low":  ["そのままだよー", "隠してないってー", "そう見える?"],
+        "mid":  ["言った通りにするって", "疑われる意味わかんない", "変えないよ"],
+        "high": ["嘘じゃないってば!", "疑うなら見てなよ!", "わたしを疑うとか間違ってる!"]
+      }
+    },
+    "cool": {
+      "DECLARE": {
+        "low":  ["{claim}、だろうか", "{claim}が妥当か", "{claim}を考えている"],
+        "mid":  ["{claim}を選ぶ", "私は{claim}だ", "{claim}で確定させる"],
+        "high": ["{claim}以外は選ばない。確定だ", "{claim}だ。覆す理由がない", "{claim}。ここは動かない"]
+      },
+      "PERSUADE": {
+        "low":  ["{target}は{claim}が合理的だ", "{claim}も選択肢だ、{target}", "{target}、{claim}を検討すべきだ"],
+        "mid":  ["{target}は{claim}を選ぶべきだ", "{claim}が最も損が少ない、{target}", "{target}、{claim}にしろ"],
+        "high": ["{target}、{claim}以外に合理的な手はない", "{claim}だ。ほかは全て劣る", "{target}が{claim}を外す理由がない"]
+      },
+      "ACCUSE": {
+        "low":  ["{target}、整合が取れていない", "{target}の発言に違和感がある", "{target}、それは本当か"],
+        "mid":  ["{target}は別の手を出す", "{target}の予告は信用に値しない", "{target}、訂正する機会をやる"],
+        "high": ["{target}、嘘だ。根拠もある", "{target}の言葉は全て信用しない", "{target}、もう読めている"]
+      },
+      "DEFEND": {
+        "low":  ["変更はない", "隠す必要がない", "そう見えるか"],
+        "mid":  ["宣言通りに実行する", "疑う根拠がない", "私は変えない"],
+        "high": ["嘘ではない。断言する", "疑うなら結果で確認しろ", "私を疑うのは誤りだ"]
+      }
+    }
+  }
+}
