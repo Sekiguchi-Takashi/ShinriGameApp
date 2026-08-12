@@ -67,6 +67,8 @@ class Game(ctx: Context) {
         const val P_ACT = 5
         const val P_RESULT = 6
         const val P_END = 7
+        const val P_REPLAY = 8
+        const val P_IF = 9
     }
 
     val memory = Memory(ctx)
@@ -91,6 +93,12 @@ class Game(ctx: Context) {
     private var persuadeWorked = false
 
     private var aiCount = 3
+
+    /** セッション中の全ラウンド。リプレイと IF シミュレーションの元になる。 */
+    val records = ArrayList<RoundRecord>()
+    private var replayIndex = 0
+    private var sessionCounted = false
+    private val lastLine = HashMap<String, String>()
 
     init {
         toSelect()
@@ -128,6 +136,9 @@ class Game(ctx: Context) {
             P_FINAL -> "最終予告"
             P_ACT -> "実行"
             P_RESULT -> "結果"
+            P_REPLAY -> "リプレイ"
+            P_IF -> "もしも"
+            P_END -> "終了"
             else -> "終了"
         }
     }
@@ -252,6 +263,8 @@ class Game(ctx: Context) {
     private fun startGame(n: Int) {
         aiCount = n
         buildRoster()
+        records.clear()
+        sessionCounted = false
         round = 0
         for (a in actors) {
             a.score = 0
@@ -275,6 +288,7 @@ class Game(ctx: Context) {
         accuseTarget = null
         pendingTarget = null
         persuadeWorked = false
+        lastLine.clear()
         phase = P_DECLARE
         log.clear()
         line("── 第" + (round + 1) + "ラウンド（配点 " + stakes() + "）")
@@ -291,6 +305,7 @@ class Game(ctx: Context) {
 
     /** 場に出ているカード。結果フェーズでは実際の行動を表にする。 */
     fun table(): List<Seat> {
+        if (phase == P_REPLAY || phase == P_IF) return replayTable()
         val out = ArrayList<Seat>()
         val reveal = (phase == P_RESULT)
         for (a in actors) {
@@ -317,8 +332,42 @@ class Game(ctx: Context) {
         return out
     }
 
+    /** リプレイ中は、その回に実際に出たものを並べる */
+    private fun replayTable(): List<Seat> {
+        val out = ArrayList<Seat>()
+        if (records.isEmpty()) return out
+        val rec = records[replayIndex]
+        for (r in rec.acts) {
+            out.add(
+                Seat(
+                    r.name,
+                    portraitOf(r.id),
+                    r.actual,
+                    def.cardAsset(r.actual),
+                    def.claims[r.actual],
+                    if (r.kept) "予告通り" else "予告と違う",
+                    0.0,
+                    true,
+                    -1.0,
+                    0
+                )
+            )
+        }
+        return out
+    }
+
+    private fun portraitOf(id: String): String {
+        for (a in actors) if (a.id == id) return a.portrait
+        return "char_player"
+    }
+
     fun header(): String {
         if (phase == P_SELECT || phase == P_ROSTER) return "心理戦ゲーム"
+        if (phase == P_REPLAY || phase == P_IF) {
+            val rec = if (records.isEmpty()) null else records[replayIndex]
+            val n = (rec?.index ?: 0) + 1
+            return def.displayName + "　リプレイ " + n + " / " + records.size
+        }
         val sb = StringBuilder()
         sb.append(def.displayName).append("　")
         sb.append(round + 1).append(" / ").append(totalRounds)
@@ -395,7 +444,24 @@ class Game(ctx: Context) {
                     list.add(Option("セッション結果を見る") { finish() })
                 }
             }
+            P_REPLAY -> {
+                if (replayIndex > 0) {
+                    list.add(Option("前のラウンド") { toReplay(replayIndex - 1) })
+                }
+                if (replayIndex + 1 < records.size) {
+                    list.add(Option("次のラウンド") { toReplay(replayIndex + 1) })
+                }
+                list.add(Option("別の手を選んでいたら") { toIf() })
+                list.add(Option("リプレイを終える") { finish() })
+            }
+            P_IF -> {
+                list.add(Option("ラウンドに戻る") { toReplay(replayIndex) })
+                list.add(Option("リプレイを終える") { finish() })
+            }
             P_END -> {
+                if (records.isNotEmpty()) {
+                    list.add(Option("リプレイを見る") { toReplay(0) })
+                }
                 list.add(Option("もう一度遊ぶ") { startGame(aiCount) })
                 list.add(Option("ゲームを選び直す") { toSelect() })
                 list.add(Option("累積の観測記録を消す") {
@@ -430,6 +496,7 @@ class Game(ctx: Context) {
                 line("あなた：" + def.claims[a.declared])
             } else {
                 val text = aiLine(a, "DECLARE", def.claims[a.declared], "")
+                lastLine[a.id] = text
                 line(a.name + "：「" + text + "」", emph(a))
             }
         }
@@ -519,6 +586,7 @@ class Game(ctx: Context) {
             if (a.isPlayer) continue
             aiDeclare(a, chosen[a] ?: rnd.nextInt(def.claims.size))
             val text = aiLine(a, "DECLARE", def.claims[a.declared], "")
+            lastLine[a.id] = text
             line(a.name + "：「" + text + "」", emph(a))
         }
         line("")
@@ -549,6 +617,9 @@ class Game(ctx: Context) {
 
     private fun resolve() {
         val st = stakes()
+        val before = HashMap<String, Int>()
+        for (a in actors) before[a.id] = a.score
+
         line("")
         line("【結果】")
         for (a in actors) {
@@ -602,7 +673,44 @@ class Game(ctx: Context) {
         for (a in actors) {
             line(a.name + "：" + a.score)
         }
+
+        recordRound(st, before)
         phase = P_RESULT
+    }
+
+    private fun recordRound(st: Int, before: Map<String, Int>) {
+        val acts = ArrayList<ActRecord>()
+        for (a in actors) {
+            acts.add(
+                ActRecord(
+                    a.id,
+                    a.name,
+                    a.isPlayer,
+                    a.declared,
+                    a.actual,
+                    a.intensity,
+                    lastLine[a.id] ?: ""
+                )
+            )
+        }
+        val after = HashMap<String, Int>()
+        for (a in actors) after[a.id] = a.score
+
+        val at = accuseTarget
+        records.add(
+            RoundRecord(
+                round,
+                st,
+                acts,
+                at?.name,
+                at != null && at.declared != at.actual,
+                persuadeTarget?.name,
+                persuadeHand,
+                persuadeWorked,
+                before,
+                after
+            )
+        )
     }
 
     private fun finish() {
@@ -639,7 +747,10 @@ class Game(ctx: Context) {
         line("　予告一致率　" + pr + "%")
         line("")
 
-        memory.finishSession()
+        if (!sessionCounted) {
+            memory.finishSession()
+            sessionCounted = true
+        }
         line("── これまでの累積観測（" + memory.sessions() + "セッション）")
         line("")
         for (a in actors) {
@@ -656,6 +767,78 @@ class Game(ctx: Context) {
         }
         line("")
         phase = P_END
+    }
+
+    // ---------------------------------------------------------------- リプレイ
+
+    private fun toReplay(index: Int) {
+        replayIndex = Engine.clamp(index.toDouble(), 0.0, (records.size - 1).toDouble()).toInt()
+        val rec = records[replayIndex]
+        phase = P_REPLAY
+        log.clear()
+
+        line("── 第" + (rec.index + 1) + "ラウンド（配点 " + rec.stakes + "）")
+        line("")
+        line("終わったあとなので、誰が予告を守ったかが分かります。")
+        line("")
+
+        val diff = Replay.actual(rec)
+        for (r in rec.acts) {
+            val mark = if (r.kept) "守った" else "破った"
+            line(r.name + "　予告 " + def.claims[r.declared] + " → 実際 " + def.claims[r.actual] + "　" + mark)
+            if (r.line.isNotEmpty()) {
+                val strength = when (r.intensity) {
+                    "high" -> "強く"
+                    "low" -> "弱く"
+                    else -> ""
+                }
+                line("　" + strength + "「" + r.line + "」", r.intensity == "high")
+            }
+            line("　このラウンドの増減　" + signed(diff[r.id] ?: 0))
+            line("")
+        }
+
+        if (rec.accusedName != null) {
+            val res = if (rec.accuseHit) "看破成功" else "誤射"
+            line("あなたは " + rec.accusedName + " を追及した → " + res)
+        }
+        if (rec.persuadedName != null) {
+            val res = if (rec.persuadeHeard) "予告は動いた" else "聞き入れられなかった"
+            line("あなたは " + rec.persuadedName + " に " + def.claims[rec.persuadedClaim] + " を勧めた → " + res)
+        }
+    }
+
+    private fun toIf() {
+        val rec = records[replayIndex]
+        phase = P_IF
+        log.clear()
+
+        val me = rec.playerAct()
+        line("── 第" + (rec.index + 1) + "ラウンドのもしも")
+        line("")
+        line("他の参加者の行動は当時のまま固定して、")
+        line("あなたの行動だけを差し替えると、増減はこう変わります。")
+        line("")
+
+        val base = Replay.simulate(def, rec, me?.actual ?: 0)
+        val basePlayer = base["player"] ?: 0
+
+        for (h in def.claims.indices) {
+            val sim = Replay.simulate(def, rec, h)
+            val v = sim["player"] ?: 0
+            val d = v - basePlayer
+            val tag = if (me != null && h == me.actual) "　← 実際に選んだ手" else ""
+            val delta = if (d == 0) "" else "（" + signed(d) + "）"
+            line(def.claims[h] + "　" + signed(v) + " " + delta + tag)
+        }
+
+        line("")
+        line("予告は " + def.claims[me?.declared ?: 0] + " でした。")
+        line("予告どおりに動けば一致ボーナスが付き、外せば読み合いで有利になります。")
+    }
+
+    private fun signed(v: Int): String {
+        return if (v > 0) "+" + v else v.toString()
     }
 
     private fun confidence(n: Int): String {

@@ -193,7 +193,7 @@ class MainActivity : Activity() {
     private fun renderTable(g: Game) {
         val tr = tableRow ?: return
         tr.removeAllViews()
-        if (g.phase == Game.P_SELECT || g.phase == Game.P_ROSTER) {
+        if (g.phase == Game.P_SELECT || g.phase == Game.P_ROSTER || g.phase == Game.P_END) {
             tr.visibility = android.view.View.GONE
             return
         }
