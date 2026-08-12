@@ -42,8 +42,8 @@
         "endgame": 1.2
       },
       "presentation": {
-        "honest": { "low": 0.20, "mid": 0.30, "high": 0.50 },
-        "lie":    { "low": 0.35, "mid": 0.35, "high": 0.30 }
+        "honest": { "low": 0.15, "mid": 0.23, "high": 0.62 },
+        "lie":    { "low": 0.45, "mid": 0.40, "high": 0.15 }
       }
     },
     {

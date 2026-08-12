@@ -15,8 +15,6 @@ object Engine {
     const val SCISSORS = 1
     const val PAPER = 2
 
-    val HANDS = arrayOf("グー", "チョキ", "パー")
-
     /** a が b に勝てば 1、負ければ -1、あいこは 0 */
     fun beats(a: Int, b: Int): Int {
         if (a == b) return 0
@@ -41,16 +39,22 @@ object Engine {
         return v
     }
 
+    /** 状況変数の中心。ここを基準に上下させる。 */
+    const val CENTER = 0.5
+
     /**
-     * z = logit(base) + Σ(weight × x)
+     * z = logit(base) + Σ(weight × (x - CENTER))
+     *
      * ロジット空間で加算するため、重みを強くしても 0〜1 を必ず保つ。
+     * 中心化しないと重みが平均そのものをずらしてしまい、
+     * base_lie_rate が「平均の嘘率」として機能しなくなる。
      */
     fun lieRate(c: Character, s: Situation): Double {
         var z = logit(c.baseLieRate)
-        z += w(c, "stakes") * s.stakes
-        z += w(c, "elimination_risk") * s.eliminationRisk
-        z += w(c, "score_gap") * s.scoreGap
-        z += w(c, "endgame") * s.endgame
+        z += w(c, "stakes") * (s.stakes - CENTER)
+        z += w(c, "elimination_risk") * (s.eliminationRisk - CENTER)
+        z += w(c, "score_gap") * (s.scoreGap - CENTER)
+        z += w(c, "endgame") * (s.endgame - CENTER)
         return sigmoid(z)
     }
 
@@ -68,10 +72,11 @@ object Engine {
         return "high"
     }
 
-    /** 予告と異なる手を1つ選ぶ */
-    fun otherHand(actual: Int, rnd: Random): Int {
-        var h = rnd.nextInt(3)
-        while (h == actual) h = rnd.nextInt(3)
+    /** 指定と異なる選択肢を1つ選ぶ */
+    fun other(exclude: Int, size: Int, rnd: Random): Int {
+        if (size <= 1) return 0
+        var h = rnd.nextInt(size)
+        while (h == exclude) h = rnd.nextInt(size)
         return h
     }
 }
