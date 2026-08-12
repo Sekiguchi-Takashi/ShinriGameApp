@@ -2,8 +2,20 @@
   "schema_version": 2,
   "roster": {
     "ai_count": 3,
-    "starter": ["ren", "momo", "sou"],
-    "unlock": ["mio"]
+    "starter": [
+      "ren",
+      "momo",
+      "sou"
+    ],
+    "unlock": [
+      "mio"
+    ],
+    "fill": [
+      "mob_a",
+      "mob_b",
+      "mob_c"
+    ],
+    "unlock_after_sessions": 2
   },
   "characters": [
     {
@@ -22,8 +34,16 @@
         "endgame": 0.4
       },
       "presentation": {
-        "honest": { "low": 0.75, "mid": 0.20, "high": 0.05 },
-        "lie":    { "low": 0.10, "mid": 0.25, "high": 0.65 }
+        "honest": {
+          "low": 0.75,
+          "mid": 0.2,
+          "high": 0.05
+        },
+        "lie": {
+          "low": 0.1,
+          "mid": 0.25,
+          "high": 0.65
+        }
       }
     },
     {
@@ -42,8 +62,16 @@
         "endgame": 1.2
       },
       "presentation": {
-        "honest": { "low": 0.15, "mid": 0.23, "high": 0.62 },
-        "lie":    { "low": 0.45, "mid": 0.40, "high": 0.15 }
+        "honest": {
+          "low": 0.15,
+          "mid": 0.23,
+          "high": 0.62
+        },
+        "lie": {
+          "low": 0.45,
+          "mid": 0.4,
+          "high": 0.15
+        }
       }
     },
     {
@@ -62,8 +90,16 @@
         "endgame": -0.5
       },
       "presentation": {
-        "honest": { "low": 0.45, "mid": 0.40, "high": 0.15 },
-        "lie":    { "low": 0.15, "mid": 0.30, "high": 0.55 }
+        "honest": {
+          "low": 0.45,
+          "mid": 0.4,
+          "high": 0.15
+        },
+        "lie": {
+          "low": 0.15,
+          "mid": 0.3,
+          "high": 0.55
+        }
       }
     },
     {
@@ -74,7 +110,7 @@
       "source_image": "4622.png",
       "voice_id": "cool",
       "lie_timing": "RANDOM",
-      "base_lie_rate": 0.20,
+      "base_lie_rate": 0.2,
       "situation_weights": {
         "stakes": 0.2,
         "elimination_risk": 0.4,
@@ -82,8 +118,16 @@
         "endgame": 0.3
       },
       "presentation": {
-        "honest": { "low": 0.34, "mid": 0.33, "high": 0.33 },
-        "lie":    { "low": 0.33, "mid": 0.34, "high": 0.33 }
+        "honest": {
+          "low": 0.34,
+          "mid": 0.33,
+          "high": 0.33
+        },
+        "lie": {
+          "low": 0.33,
+          "mid": 0.34,
+          "high": 0.33
+        }
       }
     }
   ],

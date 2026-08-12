@@ -57,7 +57,8 @@ class Actor(
 class Game(ctx: Context) {
 
     companion object {
-        const val P_SELECT = -1
+        const val P_SELECT = -2
+        const val P_ROSTER = -1
         const val P_DECLARE = 0
         const val P_REVEAL = 1
         const val P_TALK = 2
@@ -89,14 +90,21 @@ class Game(ctx: Context) {
     private var accuseTarget: Actor? = null
     private var persuadeWorked = false
 
+    private var aiCount = 3
+
     init {
+        toSelect()
+    }
+
+    /** 参加者を組み直す。基本3人は必ず残り、増員分はミオ→モブの順で埋まる。 */
+    private fun buildRoster() {
+        actors.clear()
         player = Actor(null, "player", "あなた", true, "char_player")
         actors.add(player)
-        for (id in table.starter) {
+        for (id in table.roster(aiCount, memory.sessions())) {
             val c = table.characters[id]
             if (c != null) actors.add(Actor(c, c.id, c.name, false, c.portrait))
         }
-        toSelect()
     }
 
     val totalRounds: Int
@@ -112,6 +120,7 @@ class Game(ctx: Context) {
     fun phaseLabel(): String {
         return when (phase) {
             P_SELECT -> "ゲーム選択"
+            P_ROSTER -> "参加者"
             P_DECLARE -> "予告"
             P_REVEAL -> "予告公開"
             P_TALK -> "会話"
@@ -220,8 +229,29 @@ class Game(ctx: Context) {
         line("そのあとで実際の行動を決めます。予告と違えてもかまいません。")
     }
 
-    private fun startGame(g: GameDef) {
+    private fun toRoster(g: GameDef) {
         def = g
+        phase = P_ROSTER
+        log.clear()
+        line(def.displayName)
+        line("")
+        line("参加人数を選んでください。")
+        line("")
+        val sessions = memory.sessions()
+        if (sessions < table.unlockAfterSessions) {
+            val left = table.unlockAfterSessions - sessions
+            line("あと " + left + " セッションで新しい相手が加わります。")
+        } else {
+            line("ミオが参加できるようになっています。")
+        }
+        line("このゲームは AI " + def.minAi + "〜" + def.maxAi + "人で成立します。")
+        line("解放済みの相手で足りない分は、名前だけの参加者で埋まります。")
+        line("観測を積み上げる相手は " + table.unlockedCount(sessions) + " 人までです。")
+    }
+
+    private fun startGame(n: Int) {
+        aiCount = n
+        buildRoster()
         round = 0
         for (a in actors) {
             a.score = 0
@@ -288,7 +318,7 @@ class Game(ctx: Context) {
     }
 
     fun header(): String {
-        if (phase == P_SELECT) return "心理戦ゲーム"
+        if (phase == P_SELECT || phase == P_ROSTER) return "心理戦ゲーム"
         val sb = StringBuilder()
         sb.append(def.displayName).append("　")
         sb.append(round + 1).append(" / ").append(totalRounds)
@@ -304,8 +334,15 @@ class Game(ctx: Context) {
         when (phase) {
             P_SELECT -> {
                 for (g in Games.all()) {
-                    list.add(Option(g.displayName) { startGame(g) })
+                    list.add(Option(g.displayName) { toRoster(g) })
                 }
+            }
+            P_ROSTER -> {
+                for (n in def.minAi..def.maxAi) {
+                    if (n < 3) continue
+                    list.add(Option("あなた + AI " + n + "人") { startGame(n) })
+                }
+                list.add(Option("ゲームを選び直す") { toSelect() })
             }
             P_DECLARE -> {
                 for (h in def.claims.indices) {
@@ -359,7 +396,7 @@ class Game(ctx: Context) {
                 }
             }
             P_END -> {
-                list.add(Option("もう一度遊ぶ") { startGame(def) })
+                list.add(Option("もう一度遊ぶ") { startGame(aiCount) })
                 list.add(Option("ゲームを選び直す") { toSelect() })
                 list.add(Option("累積の観測記録を消す") {
                     memory.clear()

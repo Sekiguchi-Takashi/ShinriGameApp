@@ -22,6 +22,10 @@ interface GameDef {
     /** score_gap を正規化するための想定満点 */
     val scoreScale: Double
 
+    /** 参加できる AI の下限と上限。ゲームによって成立する人数が違う。 */
+    val minAi: Int
+    val maxAi: Int
+
     /** 予告どおりに実行したときの加点 */
     fun matchBonus(stakes: Int): Int
 
@@ -71,6 +75,8 @@ class JankenGame : GameDef {
     override val claims = arrayOf("グー", "チョキ", "パー")
     override val stakes = intArrayOf(1, 1, 2, 1, 3)
     override val scoreScale = 12.0
+    override val minAi = 2
+    override val maxAi = 5
 
     override fun matchBonus(stakes: Int): Int = stakes
 
@@ -124,10 +130,15 @@ class JankenGame : GameDef {
 
 /**
  * 全員が同時に 0〜3 歩進む。
- * その回に最も多く進んだ者がただ1人なら「動いた」とみなされ、捕まって1歩下がる。
- * 同数で並べば全員セーフ。
  *
- * 大きく進みたいが、突出すると捕まる。予告は他人を抑え込むために使える。
+ * 最も多く進むと予告した者が「見張られる」。
+ * 見張られた者が実際にも最多を出し、それが単独か全員一致なら捕まって1歩下がる。
+ * 一部だけが並んだ場合はセーフ。
+ *
+ * 予告が見張りを引き寄せるので、大きく言って小さく動く／小さく言って大きく動く、が成立する。
+ *
+ * 人数が増えると全員の予告が上限に張り付き、嘘つきが不利になりすぎる。
+ * 実測で AI 5人だと BAIT の勝率が 13% まで落ちたため maxAi を 4 にしている。
  */
 class DarumaGame : GameDef {
 
@@ -136,15 +147,32 @@ class DarumaGame : GameDef {
     override val claims = arrayOf("0歩", "1歩", "2歩", "3歩")
     override val stakes = intArrayOf(1, 1, 2, 1, 3)
     override val scoreScale = 15.0
+    override val minAi = 2
+    override val maxAi = 4
 
     override fun matchBonus(stakes: Int): Int = 1
 
-    private fun payoff(mine: Int, others: IntArray): Int {
+    /** 最も多く進むと予告した者が見張られる。同数なら全員が見張られる。 */
+    private fun watched(actors: List<Actor>, a: Actor): Boolean {
+        var max = -1
+        for (o in actors) if (o.declared > max) max = o.declared
+        return a.declared == max
+    }
+
+    private fun caught(mine: Int, max: Int, count: Int, total: Int, watched: Boolean): Boolean {
+        if (!watched) return false
+        if (mine != max) return false
+        // 単独で突出した場合と、全員が横並びで動いた場合に捕まる。
+        // 一部だけ並んだときをセーフにしておかないと、大人数で予告が上限に張り付く。
+        return count == 1 || count == total
+    }
+
+    private fun payoff(mine: Int, others: IntArray, watched: Boolean): Int {
         var max = mine
         for (v in others) if (v > max) max = v
         var count = if (mine == max) 1 else 0
         for (v in others) if (v == max) count++
-        if (mine == max && count == 1) return -1
+        if (caught(mine, max, count, others.size + 1, watched)) return -1
         return mine
     }
 
@@ -164,6 +192,7 @@ class DarumaGame : GameDef {
 
         val probs = ArrayList<DoubleArray>()
         for (o in others) probs.add(claimBelief(o, n, belief(o)))
+        val watched = watched(actors, self)
 
         // 相手の組み合わせを全列挙する（人数が少ないので現実的）
         val combo = IntArray(others.size)
@@ -179,7 +208,7 @@ class DarumaGame : GameDef {
                 w *= probs[i][combo[i]]
             }
             if (w <= 0.0) continue
-            for (h in 0 until n) score[h] += w * payoff(h, combo)
+            for (h in 0 until n) score[h] += w * payoff(h, combo, watched)
         }
         return score
     }
@@ -190,28 +219,34 @@ class DarumaGame : GameDef {
         var count = 0
         for (a in actors) if (a.actual == max) count++
 
+        val watchedNames = ArrayList<String>()
+        for (a in actors) if (watched(actors, a)) watchedNames.add(a.name)
+        log("見張られていたのは " + watchedNames.joinToString("、"))
+
+        var anyCaught = false
         for (a in actors) {
+            val hit = caught(a.actual, max, count, actors.size, watched(actors, a))
             var gained: Int
-            if (a.actual == max && count == 1) {
+            if (hit) {
                 gained = -1
-                log(a.name + " は動きすぎて捕まった（-1歩）")
+                anyCaught = true
+                log(a.name + " は見張られたまま動きすぎて捕まった（-1歩）")
             } else {
                 gained = a.actual
             }
-            if (a.declared == a.actual) gained += matchBonus(stakes)
+            // 捕まったラウンドは一致ボーナスを付けない。
+            if (a.declared == a.actual && !hit) gained += matchBonus(stakes)
             a.score += gained
         }
 
-        if (count > 1) {
-            log("最多が並んだので、誰も捕まらなかった")
-        }
+        if (!anyCaught) log("誰も捕まらなかった")
     }
 
     override fun actPrompt(): String =
         "実際に進む歩数を選んでください。予告と違ってもかまいません。"
 
     override fun roundPrompt(): String =
-        "何歩進むか予告してください。単独で最多になると捕まります。"
+        "何歩進むか予告してください。最多を予告すると見張られます。"
 }
 
 object Games {

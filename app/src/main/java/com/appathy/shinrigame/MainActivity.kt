@@ -141,6 +141,9 @@ class MainActivity : Activity() {
             "char_momo" -> R.drawable.char_momo
             "char_sou" -> R.drawable.char_sou
             "char_mio" -> R.drawable.char_mio
+            "char_mob_a" -> R.drawable.char_mob_a
+            "char_mob_b" -> R.drawable.char_mob_b
+            "char_mob_c" -> R.drawable.char_mob_c
             else -> R.drawable.char_player
         }
     }
@@ -190,27 +193,37 @@ class MainActivity : Activity() {
     private fun renderTable(g: Game) {
         val tr = tableRow ?: return
         tr.removeAllViews()
-        if (g.phase == Game.P_SELECT) {
+        if (g.phase == Game.P_SELECT || g.phase == Game.P_ROSTER) {
             tr.visibility = android.view.View.GONE
             return
         }
         tr.visibility = android.view.View.VISIBLE
-        for (seat in g.table()) {
+
+        // 席数が増えるほど1席あたりを詰める
+        val seatList = g.table()
+        val seats = seatList.size
+        val faceSize = when {
+            seats <= 4 -> 110
+            seats == 5 -> 88
+            else -> 72
+        }
+        val nameSize = if (seats <= 4) 12f else 10f
+        for (seat in seatList) {
             val col = LinearLayout(this)
             col.orientation = LinearLayout.VERTICAL
             col.gravity = Gravity.CENTER_HORIZONTAL
-            col.setPadding(5, 0, 5, 0)
+            col.setPadding(if (seats <= 4) 5 else 2, 0, if (seats <= 4) 5 else 2, 0)
 
             val face = ImageView(this)
             face.setImageResource(portraitRes(seat.portrait))
             face.scaleType = ImageView.ScaleType.FIT_CENTER
-            val fp = LinearLayout.LayoutParams(110, 110)
+            val fp = LinearLayout.LayoutParams(faceSize, faceSize)
             fp.bottomMargin = 4
             col.addView(face, fp)
 
             val name = TextView(this)
             name.text = seat.name
-            name.textSize = 12f
+            name.textSize = nameSize
             name.gravity = Gravity.CENTER
             name.setTextColor(Color.WHITE)
             name.setTypeface(null, Typeface.BOLD)
@@ -245,7 +258,7 @@ class MainActivity : Activity() {
             }
 
             if (!seat.isPlayer) {
-                col.addView(trustBar(seat.trust), LinearLayout.LayoutParams(88, 8))
+                col.addView(trustBar(seat.trust), LinearLayout.LayoutParams(faceSize - 20, 8))
 
                 val memo = TextView(this)
                 if (seat.memoCount > 0) {
@@ -254,7 +267,7 @@ class MainActivity : Activity() {
                 } else {
                     memo.text = "未観測"
                 }
-                memo.textSize = 10f
+                memo.textSize = if (seats <= 4) 10f else 9f
                 memo.gravity = Gravity.CENTER
                 memo.setTextColor(Color.parseColor("#FFF3DE"))
                 memo.setPadding(0, 3, 0, 0)
@@ -269,7 +282,7 @@ class MainActivity : Activity() {
 
             val note = TextView(this)
             note.text = seat.note
-            note.textSize = 11f
+            note.textSize = if (seats <= 4) 11f else 9f
             note.gravity = Gravity.CENTER
             note.setTextColor(Color.parseColor("#FFF3DE"))
             col.addView(

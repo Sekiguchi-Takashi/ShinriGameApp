@@ -62,6 +62,7 @@ def claim_belief(o, size, honesty):
 
 
 class Janken:
+    max_ai = 5
     id = "janken"
     name = "予告じゃんけん"
     claims = ["グー", "チョキ", "パー"]
@@ -92,11 +93,12 @@ class Daruma:
     claims = ["0歩", "1歩", "2歩", "3歩"]
     scale = 15.0
 
-    def payoff(self, mine, others):
+    def payoff(self, mine, others, watched):
+        """見張られていて最多を出し、それが単独か全員一致なら捕まる"""
         allv = list(others) + [mine]
         mx = max(allv)
         cnt = sum(1 for v in allv if v == mx)
-        if mine == mx and cnt == 1:
+        if watched and mine == mx and (cnt == 1 or cnt == len(allv)):
             return -1
         return mine
 
@@ -108,6 +110,9 @@ class Daruma:
             return score
         probs = [claim_belief(o, n, belief(o)) for o in others]
 
+        watched = self.watched_ids(actors)
+        me_watched = id(me) in watched
+
         for k in range(n ** len(others)):
             x, w, combo = k, 1.0, []
             for i in range(len(others)):
@@ -118,15 +123,25 @@ class Daruma:
             if w <= 0.0:
                 continue
             for h in range(n):
-                score[h] += w * self.payoff(h, combo)
+                score[h] += w * self.payoff(h, combo, me_watched)
         return score
 
+    max_ai = 4
+
+    def watched_ids(self, actors):
+        """最も多く進むと予告した者が見張られる。同数なら全員が見張られる。"""
+        mx = max(a.declared for a in actors if a.declared >= 0)
+        return set(id(a) for a in actors if a.declared == mx)
+
     def resolve(self, actors, st):
+        watched = self.watched_ids(actors)
         mx = max(a.actual for a in actors)
         cnt = sum(1 for a in actors if a.actual == mx)
         for a in actors:
-            g = -1 if (a.actual == mx and cnt == 1) else a.actual
-            if a.declared == a.actual:
+            caught = (id(a) in watched and a.actual == mx
+                      and (cnt == 1 or cnt == len(actors)))
+            g = -1 if caught else a.actual
+            if a.declared == a.actual and not caught:
                 g += 1
             a.score += g
 

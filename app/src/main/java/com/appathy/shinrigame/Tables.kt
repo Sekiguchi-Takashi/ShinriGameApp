@@ -48,6 +48,9 @@ class CharacterTable(json: String) {
 
     val characters = LinkedHashMap<String, Character>()
     val starter = ArrayList<String>()
+    val unlock = ArrayList<String>()
+    val fill = ArrayList<String>()
+    var unlockAfterSessions = 2
 
     init {
         val root = JSONObject(json)
@@ -75,8 +78,47 @@ class CharacterTable(json: String) {
             }
         }
 
-        val st = root.getJSONObject("roster").getJSONArray("starter")
-        for (i in 0 until st.length()) starter.add(st.getString(i))
+        val roster = root.getJSONObject("roster")
+        readIds(roster, "starter", starter)
+        readIds(roster, "unlock", unlock)
+        readIds(roster, "fill", fill)
+        unlockAfterSessions = roster.optInt("unlock_after_sessions", 2)
+    }
+
+    private fun readIds(o: JSONObject, key: String, out: ArrayList<String>) {
+        val arr = o.optJSONArray(key) ?: return
+        for (i in 0 until arr.length()) out.add(arr.getString(i))
+    }
+
+    /**
+     * 参加者を組む。
+     *
+     * 基本3人 → 解放済みなら ミオ → 足りない分をモブで埋める。
+     * 固定の3人が必ず入るのが要点で、ここを入れ替えるとプレイヤー側の学習が積み上がらない。
+     */
+    fun roster(aiCount: Int, sessions: Int): List<String> {
+        val out = ArrayList<String>()
+        for (id in starter) {
+            if (out.size >= aiCount) break
+            if (characters.containsKey(id)) out.add(id)
+        }
+        if (sessions >= unlockAfterSessions) {
+            for (id in unlock) {
+                if (out.size >= aiCount) break
+                if (characters.containsKey(id)) out.add(id)
+            }
+        }
+        for (id in fill) {
+            if (out.size >= aiCount) break
+            if (characters.containsKey(id)) out.add(id)
+        }
+        return out
+    }
+
+    fun unlockedCount(sessions: Int): Int {
+        var n = starter.size
+        if (sessions >= unlockAfterSessions) n += unlock.size
+        return n
     }
 
     private fun parse(o: JSONObject): Character {
