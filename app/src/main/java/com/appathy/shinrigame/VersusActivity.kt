@@ -249,7 +249,7 @@ class VersusActivity : Activity() {
 
     private fun declareMine(h: Int) {
         val v = vs ?: return
-        v.setMyDeclared(h)
+        v.myDeclared = h
         myIntensity = "mid"
         net.send("DECLARE|" + h + "|mid")
         status = "相手の予告を待っています"
@@ -325,7 +325,7 @@ class VersusActivity : Activity() {
 
     private fun actMine(h: Int) {
         val v = vs ?: return
-        v.setMyActual(h)
+        v.myActual = h
         net.send("ACT|" + h)
         state = S_WAIT
         status = "相手の手を待っています"

@@ -132,10 +132,6 @@ class Versus(
         return Engine.sampleIntensity(c, myLying, rnd)
     }
 
-    fun setMyDeclared(h: Int) {
-        myDeclared = h
-    }
-
     // ---------------------------------------------------------------- 実行
 
     /**
@@ -184,10 +180,6 @@ class Versus(
             if (Engine.beats(h, declared) == 1 && h != myDeclared) return h
         }
         return Engine.other(myDeclared, 3, rnd)
-    }
-
-    fun setMyActual(h: Int) {
-        myActual = h
     }
 
     // ---------------------------------------------------------------- 判定
