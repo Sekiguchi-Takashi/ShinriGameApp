@@ -101,6 +101,12 @@ class Game(ctx: Context) {
 
     /** 画面側が拾って対戦画面へ移るための合図 */
     var wantVersus = false
+
+    /** 直前のラウンドで予告を破った者。会話の材料になる。 */
+    private val brokeLast = HashSet<String>()
+
+    /** 直前のラウンドでプレイヤーが追及した相手 */
+    private var accusedLast: String? = null
     private val lastLine = HashMap<String, String>()
 
     init {
@@ -286,6 +292,8 @@ class Game(ctx: Context) {
         aiCount = n
         buildRoster()
         records.clear()
+        brokeLast.clear()
+        accusedLast = null
         sessionCounted = false
         round = 0
         for (a in actors) {
@@ -531,8 +539,9 @@ class Game(ctx: Context) {
         line("【会話】")
         for (a in actors) {
             if (a.isPlayer) continue
-            val target = randomOther(a)
-            val intent = pickIntent()
+            val talk = pickTalk(a)
+            val intent = talk.first
+            val target = talk.second
             val claim = if (intent == "PERSUADE") {
                 def.claims[suggestClaim(a)]
             } else {
@@ -546,11 +555,58 @@ class Game(ctx: Context) {
         phase = P_TALK
     }
 
-    private fun pickIntent(): String {
-        val x = rnd.nextDouble()
-        if (x < 0.45) return "PERSUADE"
-        if (x < 0.80) return "ACCUSE"
-        return "DEFEND"
+    /**
+     * 誰に何を言うかを、その場の状況から決める。
+     *
+     * でたらめに喋らせると、発言がただの飾りになって読む材料にならない。
+     * 直前に何が起きたかを踏まえて話させることで、会話が観測の一部になる。
+     */
+    private fun pickTalk(a: Actor): Pair<String, Actor> {
+        // 前の回に追及された相手には弁明する
+        if (accusedLast == a.id) return Pair("DEFEND", player)
+
+        // 前の回に予告を破った者がいれば追及する
+        val breaker = pickBreaker(a)
+        if (breaker != null && rnd.nextDouble() < 0.75) {
+            return Pair("ACCUSE", breaker)
+        }
+
+        // 通算で予告を破りがちな相手なら、実績がなくても疑ってかかる
+        if (suspectsPlayer() && rnd.nextDouble() < 0.35) {
+            return Pair("ACCUSE", player)
+        }
+
+        // それ以外は首位を狙って勧める
+        val leader = leaderExcept(a)
+        if (leader != null && rnd.nextDouble() < 0.7) {
+            return Pair("PERSUADE", leader)
+        }
+        return Pair("DEFEND", randomOther(a))
+    }
+
+    private fun pickBreaker(a: Actor): Actor? {
+        val pool = ArrayList<Actor>()
+        for (o in actors) {
+            if (o === a) continue
+            if (brokeLast.contains(o.id)) pool.add(o)
+        }
+        if (pool.isEmpty()) return null
+        return pool[rnd.nextInt(pool.size)]
+    }
+
+    /** 通算の記録から見て、プレイヤーが予告を守らない側かどうか */
+    private fun suspectsPlayer(): Boolean {
+        if (memory.observed("player") < 5) return false
+        return memory.matchRate("player") < 0.45
+    }
+
+    private fun leaderExcept(a: Actor): Actor? {
+        var best: Actor? = null
+        for (o in actors) {
+            if (o === a) continue
+            if (best == null || o.score > best.score) best = o
+        }
+        return best
     }
 
     /**
@@ -700,7 +756,17 @@ class Game(ctx: Context) {
         }
 
         recordRound(st, before)
+        rememberForTalk()
         phase = P_RESULT
+    }
+
+    /** 次のラウンドの会話で使う材料を残す。beginRound では消さない。 */
+    private fun rememberForTalk() {
+        brokeLast.clear()
+        for (a in actors) {
+            if (a.declared != a.actual) brokeLast.add(a.id)
+        }
+        accusedLast = accuseTarget?.id
     }
 
     private fun recordRound(st: Int, before: Map<String, Int>) {
