@@ -45,9 +45,6 @@ class VersusActivity : Activity() {
     private var status = ""
     private val log = ArrayList<LogLine>()
 
-    /** 自動で見つかった相手（表示名 → IP） */
-    private val found = LinkedHashMap<String, String>()
-
     private var peerReady = false
     private var myReady = false
     private var myIntensity = "mid"
@@ -147,13 +144,6 @@ class VersusActivity : Activity() {
 
         net.onConnected = { onConnected() }
         net.onMessage = { onMessage(it) }
-        net.onFound = { name, ip ->
-            if (!found.containsKey(ip)) {
-                found[ip] = name
-                line("見つかりました　" + ip)
-                render()
-            }
-        }
         net.onError = { msg ->
             status = msg
             line(msg)
@@ -161,11 +151,9 @@ class VersusActivity : Activity() {
         }
 
         status = "2台を同じ Wi-Fi につないでください。"
-        line("片方が「待ち受ける」を押すと、もう片方の一覧に出ます。")
-        line("出てこないときだけ、IP を直接入れてください。")
+        line("片方が「待ち受ける」、もう片方が「つなぐ」を選びます。")
         line("")
         line("この端末の IP　" + Net.localIp())
-        net.discover(this)
         render()
     }
 
@@ -351,12 +339,6 @@ class VersusActivity : Activity() {
         val peerDecl = v.peerDeclared
         val r = v.resolve()
 
-        // 自分で予告して自分で出した回だけ、1人用と同じ記録に足す。
-        // NPC を操った回は本人の予告ではないので数えない。
-        if (v.mode == Versus.MODE_DIRECT) {
-            memory.record("player", myDecl == v.myActual, false)
-        }
-
         line("")
         line("【結果】")
         line(
@@ -521,18 +503,17 @@ class VersusActivity : Activity() {
                     vs = Versus(true, table, memory)
                     status = "相手の接続を待っています"
                     state = S_WAIT
-                    net.advertise(this)
                     net.host()
                 })
-                for (e in found.entries) {
-                    list.add(Option("この端末につなぐ　" + e.key) { connectTo(e.key) })
-                }
-                list.add(Option("IP を入れてつなぐ") {
+                list.add(Option("つなぐ（ゲスト）") {
                     val ip = ipInput?.text?.toString()?.trim() ?: ""
                     if (ip.isEmpty()) {
                         status = "相手の IP を入力してください"
                     } else {
-                        connectTo(ip)
+                        vs = Versus(false, table, memory)
+                        status = "接続しています"
+                        state = S_WAIT
+                        net.join(ip)
                     }
                 })
                 list.add(Option("やめる") { finish() })
@@ -574,14 +555,6 @@ class VersusActivity : Activity() {
             }
         }
         return list
-    }
-
-    private fun connectTo(ip: String) {
-        vs = Versus(false, table, memory)
-        status = "接続しています"
-        state = S_WAIT
-        net.join(ip)
-        render()
     }
 
     private fun sendMode(mode: Int, rounds: Int) {

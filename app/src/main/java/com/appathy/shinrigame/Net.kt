@@ -1,8 +1,5 @@
 package com.appathy.shinrigame
 
-import android.content.Context
-import android.net.nsd.NsdManager
-import android.net.nsd.NsdServiceInfo
 import android.os.Handler
 import android.os.Looper
 import java.io.BufferedReader
@@ -25,10 +22,6 @@ class Net {
 
     companion object {
         const val PORT = 47821
-
-        /** 同じ Wi-Fi 内でこのアプリ同士を見つけるための名前 */
-        const val SERVICE_TYPE = "_shinri._tcp."
-        const val SERVICE_NAME = "ShinriGame"
 
         /** 画面に出すための自分の IPv4 アドレス */
         fun localIp(): String {
@@ -55,15 +48,6 @@ class Net {
 
     private val main = Handler(Looper.getMainLooper())
 
-    private var nsd: NsdManager? = null
-    private var regListener: NsdManager.RegistrationListener? = null
-    private var discListener: NsdManager.DiscoveryListener? = null
-    private var resolving = false
-    private val pending = ArrayList<NsdServiceInfo>()
-
-    /** 見つけた相手（表示名 → IP） */
-    var onFound: ((String, String) -> Unit)? = null
-
     private var server: ServerSocket? = null
     private var socket: Socket? = null
     private var writer: PrintWriter? = null
@@ -78,112 +62,6 @@ class Net {
 
     val connected: Boolean
         get() = socket != null && !closed
-
-    /**
-     * ホストの居場所を Wi-Fi 上に知らせる。
-     * IP を読み上げなくても、ゲスト側の一覧に出るようにするため。
-     */
-    fun advertise(ctx: Context) {
-        try {
-            val m = ctx.applicationContext.getSystemService(Context.NSD_SERVICE) as NsdManager
-            nsd = m
-            val info = NsdServiceInfo()
-            info.serviceName = SERVICE_NAME
-            info.serviceType = SERVICE_TYPE
-            info.port = PORT
-
-            val l = object : NsdManager.RegistrationListener {
-                override fun onServiceRegistered(info: NsdServiceInfo) {}
-                override fun onRegistrationFailed(info: NsdServiceInfo, code: Int) {}
-                override fun onServiceUnregistered(info: NsdServiceInfo) {}
-                override fun onUnregistrationFailed(info: NsdServiceInfo, code: Int) {}
-            }
-            regListener = l
-            m.registerService(info, NsdManager.PROTOCOL_DNS_SD, l)
-        } catch (e: Exception) {
-            // 見つけてもらえないだけで、IP の手入力は使える
-        }
-    }
-
-    /** 待ち受けている端末を探す */
-    fun discover(ctx: Context) {
-        try {
-            val m = ctx.applicationContext.getSystemService(Context.NSD_SERVICE) as NsdManager
-            nsd = m
-            val l = object : NsdManager.DiscoveryListener {
-                override fun onDiscoveryStarted(type: String) {}
-                override fun onDiscoveryStopped(type: String) {}
-                override fun onStartDiscoveryFailed(type: String, code: Int) {
-                    fail("端末を探せませんでした。IP を入れてつないでください")
-                }
-
-                override fun onStopDiscoveryFailed(type: String, code: Int) {}
-
-                override fun onServiceFound(info: NsdServiceInfo) {
-                    if (info.serviceType.contains("shinri")) queueResolve(m, info)
-                }
-
-                override fun onServiceLost(info: NsdServiceInfo) {}
-            }
-            discListener = l
-            m.discoverServices(SERVICE_TYPE, NsdManager.PROTOCOL_DNS_SD, l)
-        } catch (e: Exception) {
-            fail("端末を探せませんでした。IP を入れてつないでください")
-        }
-    }
-
-    /** 解決は1件ずつしか通らない端末があるので順番に処理する */
-    private fun queueResolve(m: NsdManager, info: NsdServiceInfo) {
-        synchronized(pending) {
-            pending.add(info)
-            if (resolving) return
-            resolving = true
-        }
-        resolveNext(m)
-    }
-
-    private fun resolveNext(m: NsdManager) {
-        var next: NsdServiceInfo? = null
-        synchronized(pending) {
-            if (pending.isEmpty()) {
-                resolving = false
-            } else {
-                next = pending.removeAt(0)
-            }
-        }
-        val info = next ?: return
-        try {
-            m.resolveService(info, object : NsdManager.ResolveListener {
-                override fun onResolveFailed(info: NsdServiceInfo, code: Int) {
-                    resolveNext(m)
-                }
-
-                override fun onServiceResolved(info: NsdServiceInfo) {
-                    val ip = info.host?.hostAddress
-                    if (ip != null && ip.indexOf(':') < 0) {
-                        main.post { onFound?.invoke(info.serviceName ?: SERVICE_NAME, ip) }
-                    }
-                    resolveNext(m)
-                }
-            })
-        } catch (e: Exception) {
-            resolving = false
-        }
-    }
-
-    private fun stopNsd() {
-        val m = nsd ?: return
-        try {
-            regListener?.let { m.unregisterService(it) }
-        } catch (e: Exception) {
-        }
-        try {
-            discListener?.let { m.stopServiceDiscovery(it) }
-        } catch (e: Exception) {
-        }
-        regListener = null
-        discListener = null
-    }
 
     /** ホストとして待ち受ける */
     fun host() {
@@ -255,7 +133,6 @@ class Net {
 
     fun close() {
         closed = true
-        stopNsd()
         try {
             socket?.close()
         } catch (e: Exception) {
