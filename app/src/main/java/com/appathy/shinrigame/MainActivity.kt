@@ -333,6 +333,10 @@ class MainActivity : Activity() {
             b.textSize = 15f
             b.setOnClickListener {
                 opt.action()
+                if (g.wantVersus) {
+                    g.wantVersus = false
+                    startActivity(android.content.Intent(this, VersusActivity::class.java))
+                }
                 render()
             }
             bl.addView(

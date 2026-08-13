@@ -208,8 +208,10 @@ def sample_intensity(c, lying, rnd):
 
 
 class Actor:
-    def __init__(self, c):
+    def __init__(self, c, prior_n=0, prior_m=0):
         self.c = c
+        self.prior_n = prior_n
+        self.prior_m = prior_m
         self.score = 0
         self.declared = -1
         self.actual = -1
@@ -247,9 +249,11 @@ def situation(game, actors, me, rnd_idx):
 
 
 def belief_honesty(a):
-    if a.obs == 0:
+    """今セッションの観測に、過去の記録を上限つきで混ぜる（Game.kt と同じ）"""
+    n = a.obs + a.prior_n
+    if n == 0:
         return 0.5
-    return clamp(a.match / float(a.obs), 0.15, 0.85)
+    return clamp((a.match + a.prior_m) / float(n), 0.15, 0.85)
 
 
 def choose_claim(game, actors, me, st, rnd):
@@ -288,8 +292,14 @@ def commit(game, actors, a, st, rnd):
     a.actual = max(cand, key=lambda h: score[h])
 
 
-def run_session(game, chars, ids, stats, rnd):
-    actors = [Actor(chars[i]) for i in ids]
+def run_session(game, chars, ids, stats, rnd, priors=None):
+    if priors is None:
+        actors = [Actor(chars[i]) for i in ids]
+    else:
+        actors = []
+        for i in ids:
+            pn, pm = priors.get(i, (0, 0))
+            actors.append(Actor(chars[i], min(pn, 20), min(pm, 20)))
 
     for r, st in enumerate(STAKES):
         for a in actors:
@@ -340,6 +350,11 @@ def run_session(game, chars, ids, stats, rnd):
         if a.score == best:
             s.wins += 1
 
+    if priors is not None:
+        for a in actors:
+            pn, pm = priors.get(a.c["id"], (0, 0))
+            priors[a.c["id"]] = (pn + a.obs, pm + a.match)
+
 
 def pct(n, d):
     if d == 0:
@@ -365,8 +380,10 @@ def main():
 
     rnd = random.Random(20260812)
     stats = {i: Stat() for i in ids}
+    # 長期記録を引き継ぐかどうか。LONGTERM=0 で毎回まっさらに戻す。
+    priors = {} if os.environ.get("LONGTERM", "1") != "0" else None
     for _ in range(n):
-        run_session(game, chars, ids, stats, rnd)
+        run_session(game, chars, ids, stats, rnd, priors)
 
     print("%s / セッション数 %d / 参加 %s" % (game.name, n, ", ".join(ids)))
     print("")

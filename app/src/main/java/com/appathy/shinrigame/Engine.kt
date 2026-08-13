@@ -15,6 +15,9 @@ object Engine {
     const val SCISSORS = 1
     const val PAPER = 2
 
+    /** じゃんけん専用のラベル。通常のゲームは GameDef.claims を使う。 */
+    val HANDS_LABEL = arrayOf("グー", "チョキ", "パー")
+
     /** a が b に勝てば 1、負ければ -1、あいこは 0 */
     fun beats(a: Int, b: Int): Int {
         if (a == b) return 0

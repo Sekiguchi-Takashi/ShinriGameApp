@@ -98,6 +98,9 @@ class Game(ctx: Context) {
     val records = ArrayList<RoundRecord>()
     private var replayIndex = 0
     private var sessionCounted = false
+
+    /** 画面側が拾って対戦画面へ移るための合図 */
+    var wantVersus = false
     private val lastLine = HashMap<String, String>()
 
     init {
@@ -162,9 +165,19 @@ class Game(ctx: Context) {
         return Situation(st, risk, gap, endgame)
     }
 
+    /**
+     * その相手が予告を守る確率の見立て。
+     *
+     * 今セッションの観測に、過去の記録を上限つきで混ぜる。
+     * プレイヤーに対しても同じ計算を使うので、遊び込むほど AI 側もこちらを読んでくる。
+     */
     private fun beliefHonesty(a: Actor): Double {
-        if (a.observedCount == 0) return 0.5
-        return Engine.clamp(a.matchRate(), 0.15, 0.85)
+        val pn = memory.priorCount(a.id)
+        val pm = memory.priorMatched(a.id)
+        val n = a.observedCount + pn
+        if (n == 0) return 0.5
+        val m = a.observedMatch + pm
+        return Engine.clamp(m.toDouble() / n.toDouble(), 0.15, 0.85)
     }
 
     // ---------------------------------------------------------------- AI
@@ -257,6 +270,15 @@ class Game(ctx: Context) {
         }
         line("このゲームは AI " + def.minAi + "〜" + def.maxAi + "人で成立します。")
         line("解放済みの相手で足りない分は、名前だけの参加者で埋まります。")
+
+        val pn = memory.observed("player")
+        if (pn >= 3) {
+            val pr = Math.round(memory.matchRate("player") * 100).toInt()
+            line("")
+            line("【相手から見たあなた】")
+            line("　予告一致率 " + pr + "%（観測 " + pn + "回）")
+            line(readOfPlayer(pr))
+        }
         line("観測を積み上げる相手は " + table.unlockedCount(sessions) + " 人までです。")
     }
 
@@ -272,7 +294,7 @@ class Game(ctx: Context) {
             a.observedMatch = 0
             a.highCount = 0
             a.highMatch = 0
-            a.trustInPlayer = 0.5
+            a.trustInPlayer = memory.initialTrust()
         }
         beginRound()
     }
@@ -385,6 +407,7 @@ class Game(ctx: Context) {
                 for (g in Games.all()) {
                     list.add(Option(g.displayName) { toRoster(g) })
                 }
+                list.add(Option("2人対戦（同じ Wi-Fi）") { wantVersus = true })
             }
             P_ROSTER -> {
                 for (n in def.minAi..def.maxAi) {
@@ -645,6 +668,8 @@ class Game(ctx: Context) {
 
         player.observedCount++
         if (player.declared == player.actual) player.observedMatch++
+        // AI 側もプレイヤーを観測する。読み合いを片側だけにしない。
+        memory.record("player", player.declared == player.actual, false)
 
         val pt2 = persuadeTarget
         if (pt2 != null) {
@@ -747,6 +772,15 @@ class Game(ctx: Context) {
         line("　予告一致率　" + pr + "%")
         line("")
 
+        val pn = memory.observed("player")
+        if (pn > 0) {
+            val lr = Math.round(memory.matchRate("player") * 100).toInt()
+            line("【相手から見たあなた】")
+            line("　通算の予告一致率 " + lr + "%（観測 " + pn + "回）")
+            line(readOfPlayer(lr))
+            line("")
+        }
+
         if (!sessionCounted) {
             memory.finishSession()
             sessionCounted = true
@@ -835,6 +869,17 @@ class Game(ctx: Context) {
         line("")
         line("予告は " + def.claims[me?.declared ?: 0] + " でした。")
         line("予告どおりに動けば一致ボーナスが付き、外せば読み合いで有利になります。")
+    }
+
+    /** 相手側がプレイヤーをどう扱うかを、断定せずに伝える */
+    private fun readOfPlayer(rate: Int): String {
+        if (rate >= 70) {
+            return "　予告を守る相手だと見られています。勧めは通りやすいぶん、行動も読まれます。"
+        }
+        if (rate <= 35) {
+            return "　予告を破る相手だと見られています。行動は読まれにくいぶん、勧めは通りません。"
+        }
+        return "　まだ決めかねられています。"
     }
 
     private fun signed(v: Int): String {
