@@ -8,7 +8,7 @@ Engine.kt / Games.kt / Game.kt のロジックをそのまま写している。
   python3 tools/sim.py                        じゃんけん1000セッション
   python3 tools/sim.py 5000                   回数指定
   python3 tools/sim.py 5000 daruma            ゲーム指定
-  python3 tools/sim.py 5000 janken momo sou   参加者を指定
+  python3 tools/sim.py 5000 janken chizuru shingo   参加者を指定
 """
 
 import json

@@ -34,6 +34,10 @@ class MainActivity : Activity() {
     private val declareRed = Color.parseColor("#C8324B")
     private val paper = Color.parseColor("#FBF8F3")
 
+    /** 予告は薄いオレンジ、実行は薄い緑。何を決める場面かを色で分ける。 */
+    private val btnDeclare = Color.parseColor("#FBDFC0")
+    private val btnAct = Color.parseColor("#CFE8D0")
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -135,17 +139,11 @@ class MainActivity : Activity() {
         return tv
     }
 
+    /** 表情差分が増えても書き換えずに済むよう、名前で引く */
     private fun portraitRes(name: String): Int {
-        return when (name) {
-            "char_ren" -> R.drawable.char_ren
-            "char_momo" -> R.drawable.char_momo
-            "char_sou" -> R.drawable.char_sou
-            "char_mio" -> R.drawable.char_mio
-            "char_mob_a" -> R.drawable.char_mob_a
-            "char_mob_b" -> R.drawable.char_mob_b
-            "char_mob_c" -> R.drawable.char_mob_c
-            else -> R.drawable.char_player
-        }
+        val id = resources.getIdentifier(name, "drawable", packageName)
+        if (id != 0) return id
+        return R.drawable.char_player
     }
 
     /** そのキャラがプレイヤーをどれだけ信じているか */
@@ -326,11 +324,24 @@ class MainActivity : Activity() {
 
         val bl = buttons ?: return
         bl.removeAllViews()
+        val tint = when (g.phase) {
+            Game.P_DECLARE, Game.P_FINAL -> btnDeclare
+            Game.P_ACT -> btnAct
+            else -> 0
+        }
         for (opt in g.options()) {
             val b = Button(this)
             b.text = opt.label
             b.setAllCaps(false)
             b.textSize = 15f
+            if (tint != 0) {
+                val bg = GradientDrawable()
+                bg.setColor(tint)
+                bg.cornerRadius = 12f
+                bg.setStroke(2, Color.parseColor("#00000022"))
+                b.background = bg
+                b.setTextColor(inkMain)
+            }
             b.setOnClickListener {
                 opt.action()
                 if (g.wantVersus) {

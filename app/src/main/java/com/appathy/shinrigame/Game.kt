@@ -107,6 +107,13 @@ class Game(ctx: Context) {
 
     /** 直前のラウンドでプレイヤーが追及した相手 */
     private var accusedLast: String? = null
+
+    /** このラウンドで負けた者。結果画面で泣かせる。 */
+    private val lostLast = HashSet<String>()
+
+    /** 前の回にだまされて負けた者。次のラウンドのあいだ怒った顔になる。 */
+    private val angryNow = HashSet<String>()
+    private val angryNext = HashSet<String>()
     private val lastLine = HashMap<String, String>()
 
     init {
@@ -294,6 +301,9 @@ class Game(ctx: Context) {
         records.clear()
         brokeLast.clear()
         accusedLast = null
+        angryNow.clear()
+        angryNext.clear()
+        lostLast.clear()
         sessionCounted = false
         round = 0
         for (a in actors) {
@@ -319,6 +329,11 @@ class Game(ctx: Context) {
         pendingTarget = null
         persuadeWorked = false
         lastLine.clear()
+        // 前の回の悔しさは、このラウンドのあいだだけ顔に出る
+        angryNow.clear()
+        angryNow.addAll(angryNext)
+        angryNext.clear()
+        lostLast.clear()
         phase = P_DECLARE
         log.clear()
         line("── 第" + (round + 1) + "ラウンド（配点 " + stakes() + "）")
@@ -331,6 +346,34 @@ class Game(ctx: Context) {
 
     private fun emph(a: Actor): Boolean {
         return a.intensity == "high"
+    }
+
+    /**
+     * 表情を決める。画像名は portrait + 接尾辞。
+     *
+     * 負けた直後は泣き、だまされて負けた次の回は怒り、
+     * 予告の段階で点差が開いていると不安になる。
+     */
+    private fun faceOf(a: Actor): String {
+        if (a.isPlayer) return a.portrait
+        if (phase == P_RESULT && lostLast.contains(a.id)) return a.portrait + "_cry"
+        if (angryNow.contains(a.id)) return a.portrait + "_angry"
+        if (isBehind(a)) return a.portrait + "_anxious"
+        return a.portrait
+    }
+
+    /** 予告から実行までのあいだ、劣勢なら不安になる */
+    private fun isBehind(a: Actor): Boolean {
+        if (round == 0) return false
+        if (phase != P_DECLARE && phase != P_REVEAL &&
+            phase != P_TALK && phase != P_TALK_HAND &&
+            phase != P_FINAL && phase != P_ACT
+        ) {
+            return false
+        }
+        var top = a.score
+        for (o in actors) if (o.score > top) top = o.score
+        return top - a.score >= stakes() * 2
     }
 
     /** 場に出ているカード。結果フェーズでは実際の行動を表にする。 */
@@ -347,7 +390,7 @@ class Game(ctx: Context) {
             out.add(
                 Seat(
                     a.name,
-                    a.portrait,
+                    faceOf(a),
                     hand,
                     if (hand >= 0) def.cardAsset(hand) else null,
                     if (hand >= 0) def.claims[hand] else "",
@@ -756,17 +799,37 @@ class Game(ctx: Context) {
         }
 
         recordRound(st, before)
-        rememberForTalk()
+        rememberForTalk(before)
         phase = P_RESULT
     }
 
-    /** 次のラウンドの会話で使う材料を残す。beginRound では消さない。 */
-    private fun rememberForTalk() {
+    /** 次のラウンドの会話と表情で使う材料を残す。beginRound では消さない。 */
+    private fun rememberForTalk(before: Map<String, Int>) {
         brokeLast.clear()
         for (a in actors) {
             if (a.declared != a.actual) brokeLast.add(a.id)
         }
         accusedLast = accuseTarget?.id
+
+        // このラウンドで損をした者は泣く
+        lostLast.clear()
+        for (a in actors) {
+            val gain = a.score - (before[a.id] ?: 0)
+            if (gain < 0) lostLast.add(a.id)
+        }
+
+        // だまされて負けた者は、次のラウンドで怒った顔になる。
+        // 「損をした」かつ「予告を破った相手がいた」を条件にする。
+        angryNext.clear()
+        var deceived = false
+        for (a in actors) {
+            if (a.declared != a.actual) deceived = true
+        }
+        if (deceived) {
+            for (id in lostLast) {
+                if (!brokeLast.contains(id)) angryNext.add(id)
+            }
+        }
     }
 
     private fun recordRound(st: Int, before: Map<String, Int>) {

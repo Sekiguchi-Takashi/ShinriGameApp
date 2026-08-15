@@ -68,6 +68,8 @@ class VersusActivity : Activity() {
     private val inkSub = Color.parseColor("#5B6472")
     private val declareRed = Color.parseColor("#C8324B")
     private val bgWood = Color.parseColor("#C2AA8E")
+    private val btnDeclare = Color.parseColor("#FBDFC0")
+    private val btnAct = Color.parseColor("#CFE8D0")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -426,13 +428,17 @@ class VersusActivity : Activity() {
     }
 
     private fun portraitRes(name: String): Int {
-        return when (name) {
-            "char_ren" -> R.drawable.char_ren
-            "char_momo" -> R.drawable.char_momo
-            "char_sou" -> R.drawable.char_sou
-            "char_mio" -> R.drawable.char_mio
-            else -> R.drawable.char_player
-        }
+        val id = resources.getIdentifier(name, "drawable", packageName)
+        if (id != 0) return id
+        return R.drawable.char_player
+    }
+
+    /** 勝ち負けと点差で表情を変える。NPC以外はそのまま。 */
+    private fun face(base: String, mine: Int, theirs: Int, showActual: Boolean): String {
+        if (base == "char_player") return base
+        if (showActual && mine < theirs) return base + "_cry"
+        if (!showActual && theirs > mine) return base + "_anxious"
+        return base
     }
 
     private fun applyFrame(hot: Boolean) {
@@ -495,10 +501,12 @@ class VersusActivity : Activity() {
         b.visibility = View.VISIBLE
 
         val showActual = (state == S_RESULT || state == S_MATCH_END)
-        val myPortrait = if (v.mode == Versus.MODE_PROXY)
+        val myBase = if (v.mode == Versus.MODE_PROXY)
             (v.myCharacter()?.portrait ?: "char_player") else "char_player"
-        val peerPortrait = if (v.mode == Versus.MODE_PROXY)
+        val peerBase = if (v.mode == Versus.MODE_PROXY)
             (v.peerCharacter()?.portrait ?: "char_player") else "char_player"
+        val myPortrait = face(myBase, v.myWins, v.peerWins, showActual)
+        val peerPortrait = face(peerBase, v.peerWins, v.myWins, showActual)
 
         seatColumn(
             v.myName(), myPortrait,
@@ -653,11 +661,24 @@ class VersusActivity : Activity() {
 
         val bl = buttons ?: return
         bl.removeAllViews()
+        val tint = when (state) {
+            S_DECLARE -> btnDeclare
+            S_ACT, S_ADVICE -> btnAct
+            else -> 0
+        }
         for (opt in options()) {
             val b = Button(this)
             b.text = opt.label
             b.setAllCaps(false)
             b.textSize = 15f
+            if (tint != 0) {
+                val bg = GradientDrawable()
+                bg.setColor(tint)
+                bg.cornerRadius = 12f
+                bg.setStroke(2, Color.parseColor("#00000022"))
+                b.background = bg
+                b.setTextColor(inkMain)
+            }
             b.setOnClickListener {
                 opt.action()
                 render()
