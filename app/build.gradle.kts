@@ -7,8 +7,9 @@ android {
     namespace = "com.appathy.shinrigame"
     compileSdk = 34
 
-    // ビルドのたびに鍵が変わると署名が一致せず、上書き更新ができなくなる。
-    // GitHub Actions のランナーには鍵が残らないため、固定の鍵をリポジトリに置いて使う。
+    // 配布ビルド（タグ発行 → release.yml）は ci/appathy.keystore で署名される。
+    // ここで固定するのは debug だけ。ランナーには鍵が残らず、
+    // 何もしないとビルドのたびに別のデバッグ鍵になって上書き更新ができなくなる。
     signingConfigs {
         create("shared") {
             storeFile = file("shinri.keystore")
@@ -22,8 +23,8 @@ android {
         applicationId = "com.appathy.shinrigame"
         minSdk = 24
         targetSdk = 34
-        versionCode = 15
-        versionName = "1.2.1"
+        versionCode = 16
+        versionName = "1.2.2"
     }
 
     buildTypes {
@@ -32,7 +33,6 @@ android {
         }
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("shared")
         }
     }
 
