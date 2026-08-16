@@ -27,6 +27,7 @@ class MainActivity : Activity() {
     private var logView: TextView? = null
     private var scroll: ScrollView? = null
     private var buttons: LinearLayout? = null
+    private var buttonScroll: ScrollView? = null
 
     private val bgWood = Color.parseColor("#C2AA8E")
     private val inkMain = Color.parseColor("#2C3E58")
@@ -101,10 +102,20 @@ class MainActivity : Activity() {
         scroll = sv
         logView = lv
 
+        val bs = ScrollView(this)
+        bs.isFillViewport = false
         val bl = LinearLayout(this)
         bl.orientation = LinearLayout.VERTICAL
         bl.setPadding(0, 12, 0, 0)
-        root.addView(bl)
+        bs.addView(bl)
+        root.addView(
+            bs,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        buttonScroll = bs
         buttons = bl
 
         setContentView(outer)
@@ -144,6 +155,15 @@ class MainActivity : Activity() {
         val id = resources.getIdentifier(name, "drawable", packageName)
         if (id != 0) return id
         return R.drawable.char_player
+    }
+
+    private fun parse(hex: String, fallback: Int): Int {
+        if (hex.isEmpty()) return fallback
+        return try {
+            Color.parseColor(hex)
+        } catch (e: Exception) {
+            fallback
+        }
     }
 
     /** そのキャラがプレイヤーをどれだけ信じているか */
@@ -201,11 +221,13 @@ class MainActivity : Activity() {
         val seatList = g.table()
         val seats = seatList.size
         val faceSize = when {
-            seats <= 4 -> 110
-            seats == 5 -> 88
-            else -> 72
+            seats <= 4 -> 104
+            seats == 5 -> 84
+            else -> 68
         }
-        val nameSize = if (seats <= 4) 12f else 10f
+        val nameSize = if (seats <= 4) 12f else 9f
+        // 5席以上では、詳しい数字は省いて縦を詰める
+        val compact = seats >= 5
         for (seat in seatList) {
             val col = LinearLayout(this)
             col.orientation = LinearLayout.VERTICAL
@@ -225,6 +247,11 @@ class MainActivity : Activity() {
             name.gravity = Gravity.CENTER
             name.setTextColor(Color.WHITE)
             name.setTypeface(null, Typeface.BOLD)
+            val nameBg = GradientDrawable()
+            nameBg.setColor(parse(seat.color, inkSub))
+            nameBg.cornerRadius = 8f
+            name.background = nameBg
+            name.setPadding(2, 2, 2, 2)
             col.addView(
                 name,
                 LinearLayout.LayoutParams(
@@ -256,16 +283,17 @@ class MainActivity : Activity() {
             }
 
             if (!seat.isPlayer) {
-                col.addView(trustBar(seat.trust), LinearLayout.LayoutParams(faceSize - 20, 8))
+                col.addView(trustBar(seat.trust), LinearLayout.LayoutParams(faceSize - 20, 6))
 
                 val memo = TextView(this)
                 if (seat.memoCount > 0) {
                     val r = Math.round(seat.memoRate * 100).toInt()
-                    memo.text = "一致 " + r + "%\n" + seat.memoCount + "回"
+                    memo.text = if (compact) r.toString() + "%"
+                    else "一致 " + r + "%\n" + seat.memoCount + "回"
                 } else {
-                    memo.text = "未観測"
+                    memo.text = if (compact) "－" else "未観測"
                 }
-                memo.textSize = if (seats <= 4) 10f else 9f
+                memo.textSize = if (seats <= 4) 10f else 8f
                 memo.gravity = Gravity.CENTER
                 memo.setTextColor(Color.parseColor("#FFF3DE"))
                 memo.setPadding(0, 3, 0, 0)
@@ -279,8 +307,8 @@ class MainActivity : Activity() {
             }
 
             val note = TextView(this)
-            note.text = seat.note
-            note.textSize = if (seats <= 4) 11f else 9f
+            note.text = if (compact) seat.note.replace("予告", "") else seat.note
+            note.textSize = if (seats <= 4) 11f else 8f
             note.gravity = Gravity.CENTER
             note.setTextColor(Color.parseColor("#FFF3DE"))
             col.addView(
@@ -334,11 +362,17 @@ class MainActivity : Activity() {
             b.text = opt.label
             b.setAllCaps(false)
             b.textSize = 15f
-            if (tint != 0) {
+            if (opt.color.isNotEmpty()) {
+                val bg = GradientDrawable()
+                bg.setColor(parse(opt.color, inkSub))
+                bg.cornerRadius = 12f
+                b.background = bg
+                b.setTextColor(Color.WHITE)
+            } else if (tint != 0) {
                 val bg = GradientDrawable()
                 bg.setColor(tint)
                 bg.cornerRadius = 12f
-                bg.setStroke(2, Color.parseColor("#00000022"))
+                bg.setStroke(2, Color.parseColor("#22000000"))
                 b.background = bg
                 b.setTextColor(inkMain)
             }

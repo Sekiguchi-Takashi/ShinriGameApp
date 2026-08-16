@@ -427,6 +427,14 @@ class VersusActivity : Activity() {
         }
     }
 
+    private fun parse(hex: String): Int {
+        return try {
+            Color.parseColor(hex)
+        } catch (e: Exception) {
+            inkSub
+        }
+    }
+
     private fun portraitRes(name: String): Int {
         val id = resources.getIdentifier(name, "drawable", packageName)
         if (id != 0) return id
@@ -449,7 +457,13 @@ class VersusActivity : Activity() {
         r.background = bg
     }
 
-    private fun seatColumn(name: String, portrait: String, hand: Int, reveal: Boolean) {
+    private fun seatColumn(
+        name: String,
+        color: String,
+        portrait: String,
+        hand: Int,
+        reveal: Boolean
+    ) {
         val b = boardView ?: return
         val col = LinearLayout(this)
         col.orientation = LinearLayout.VERTICAL
@@ -467,6 +481,11 @@ class VersusActivity : Activity() {
         tv.gravity = Gravity.CENTER
         tv.setTextColor(Color.WHITE)
         tv.setTypeface(null, Typeface.BOLD)
+        val nameBg = GradientDrawable()
+        nameBg.setColor(parse(color))
+        nameBg.cornerRadius = 8f
+        tv.background = nameBg
+        tv.setPadding(2, 2, 2, 2)
         col.addView(
             tv,
             LinearLayout.LayoutParams(
@@ -508,13 +527,16 @@ class VersusActivity : Activity() {
         val myPortrait = face(myBase, v.myWins, v.peerWins, showActual)
         val peerPortrait = face(peerBase, v.peerWins, v.myWins, showActual)
 
+        val myColor = v.myCharacter()?.color ?: "#6E7684"
+        val peerColor = v.peerCharacter()?.color ?: "#6E7684"
+
         seatColumn(
-            v.myName(), myPortrait,
+            v.myName(), myColor, myPortrait,
             if (showActual) v.myActual else v.myDeclared,
             if (showActual) v.myActual >= 0 else v.myDeclared >= 0
         )
         seatColumn(
-            v.peerName(), peerPortrait,
+            v.peerName(), peerColor, peerPortrait,
             if (showActual) v.peerActual else v.peerDeclared,
             if (showActual) v.peerActual >= 0 else v.peerDeclared >= 0
         )
@@ -554,7 +576,7 @@ class VersusActivity : Activity() {
             S_PICK -> {
                 for (id in table.starter) {
                     val c = table.characters[id] ?: continue
-                    list.add(Option(c.name + " を選ぶ") { pick(id) })
+                    list.add(Option(c.name + " を選ぶ", c.color) { pick(id) })
                 }
             }
             S_DECLARE -> {
@@ -671,11 +693,17 @@ class VersusActivity : Activity() {
             b.text = opt.label
             b.setAllCaps(false)
             b.textSize = 15f
-            if (tint != 0) {
+            if (opt.color.isNotEmpty()) {
+                val bg = GradientDrawable()
+                bg.setColor(parse(opt.color))
+                bg.cornerRadius = 12f
+                b.background = bg
+                b.setTextColor(Color.WHITE)
+            } else if (tint != 0) {
                 val bg = GradientDrawable()
                 bg.setColor(tint)
                 bg.cornerRadius = 12f
-                bg.setStroke(2, Color.parseColor("#00000022"))
+                bg.setStroke(2, Color.parseColor("#22000000"))
                 b.background = bg
                 b.setTextColor(inkMain)
             }

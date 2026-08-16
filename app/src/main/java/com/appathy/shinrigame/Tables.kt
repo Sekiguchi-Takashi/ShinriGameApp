@@ -11,6 +11,7 @@ data class Character(
     val name: String,
     val archetype: String,
     val portrait: String,
+    val color: String,
     val voiceId: String,
     val baseLieRate: Double,
     val weights: Map<String, Double>,
@@ -73,6 +74,9 @@ class CharacterTable(json: String) {
                         o.getString("name"),
                         o.optString("voice_id", base.voiceId),
                         o.getDouble("intensity_scale")
+                    ).copy(
+                        portrait = o.optString("portrait", base.portrait).removeSuffix(".png"),
+                        color = o.optString("color", base.color)
                     )
                 }
             }
@@ -135,6 +139,7 @@ class CharacterTable(json: String) {
             o.getString("name"),
             o.getString("archetype"),
             o.optString("portrait", "char_player").removeSuffix(".png"),
+            o.optString("color", "#5B6472"),
             o.getString("voice_id"),
             o.getDouble("base_lie_rate"),
             weights,
@@ -163,6 +168,7 @@ class CharacterTable(json: String) {
             name,
             base.archetype + "_MOB",
             base.portrait,
+            base.color,
             voice,
             base.baseLieRate,
             weights,

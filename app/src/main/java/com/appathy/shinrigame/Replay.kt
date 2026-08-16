@@ -48,7 +48,7 @@ object Replay {
     fun simulate(def: GameDef, rec: RoundRecord, playerActual: Int): Map<String, Int> {
         val temp = ArrayList<Actor>()
         for (r in rec.acts) {
-            val a = Actor(null, r.id, r.name, r.isPlayer, "")
+            val a = Actor(null, r.id, r.name, r.isPlayer, "", "")
             a.declared = r.declared
             a.actual = if (r.isPlayer) playerActual else r.actual
             a.score = 0

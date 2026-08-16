@@ -44,7 +44,8 @@
           "mid": 0.25,
           "high": 0.65
         }
-      }
+      },
+      "color": "#2FA39B"
     },
     {
       "id": "chizuru",
@@ -71,7 +72,8 @@
           "mid": 0.4,
           "high": 0.15
         }
-      }
+      },
+      "color": "#C08552"
     },
     {
       "id": "shingo",
@@ -98,7 +100,8 @@
           "mid": 0.3,
           "high": 0.55
         }
-      }
+      },
+      "color": "#4A6FA5"
     },
     {
       "id": "akane",
@@ -125,7 +128,8 @@
           "mid": 0.34,
           "high": 0.33
         }
-      }
+      },
+      "color": "#C0554F"
     },
     {
       "id": "toshi",
@@ -152,7 +156,8 @@
           "mid": 0.4,
           "high": 0.3
         }
-      }
+      },
+      "color": "#3A4152"
     }
   ],
   "mobs": [
@@ -162,7 +167,8 @@
       "base": "shingo",
       "intensity_scale": 0.4,
       "voice_id": "blunt",
-      "portrait": "char_mob_a"
+      "portrait": "char_mob_a",
+      "color": "#8A8F98"
     },
     {
       "id": "mob_b",
@@ -170,7 +176,8 @@
       "base": "chizuru",
       "intensity_scale": 0.4,
       "voice_id": "polite",
-      "portrait": "char_mob_b"
+      "portrait": "char_mob_b",
+      "color": "#8F8A80"
     },
     {
       "id": "mob_c",
@@ -178,7 +185,8 @@
       "base": "toru",
       "intensity_scale": 0.5,
       "voice_id": "cheerful",
-      "portrait": "char_mob_c"
+      "portrait": "char_mob_c",
+      "color": "#849089"
     }
   ]
 }

@@ -4,7 +4,8 @@ import android.content.Context
 import org.json.JSONObject
 import java.util.Random
 
-class Option(val label: String, val action: () -> Unit)
+/** color は "#RRGGBB"。空ならフェーズごとの既定色を使う。 */
+class Option(val label: String, val color: String = "", val action: () -> Unit)
 
 /** emphasis は「疑わしさ（断言強度 high）」のみで決まる。真偽は絶対に渡さない。 */
 class LogLine(val text: String, val emphasis: Boolean)
@@ -12,6 +13,7 @@ class LogLine(val text: String, val emphasis: Boolean)
 /** テーブル上の1席分 */
 class Seat(
     val name: String,
+    val color: String,
     val portrait: String,
     val cardHand: Int,
     val cardAsset: String?,
@@ -28,7 +30,8 @@ class Actor(
     val id: String,
     val name: String,
     val isPlayer: Boolean,
-    val portrait: String
+    val portrait: String,
+    val color: String
 ) {
     var score = 0
     var declared = -1
@@ -69,6 +72,8 @@ class Game(ctx: Context) {
         const val P_END = 7
         const val P_REPLAY = 8
         const val P_IF = 9
+        const val P_TALK_ACCUSE = 10
+        const val P_TALK_WHO = 11
     }
 
     val memory = Memory(ctx)
@@ -123,11 +128,11 @@ class Game(ctx: Context) {
     /** 参加者を組み直す。基本3人は必ず残り、増員分はミオ→モブの順で埋まる。 */
     private fun buildRoster() {
         actors.clear()
-        player = Actor(null, "player", "あなた", true, "char_player")
+        player = Actor(null, "player", "あなた", true, "char_player", "#6E7684")
         actors.add(player)
         for (id in table.roster(aiCount, memory.sessions())) {
             val c = table.characters[id]
-            if (c != null) actors.add(Actor(c, c.id, c.name, false, c.portrait))
+            if (c != null) actors.add(Actor(c, c.id, c.name, false, c.portrait, c.color))
         }
     }
 
@@ -149,6 +154,8 @@ class Game(ctx: Context) {
             P_REVEAL -> "予告公開"
             P_TALK -> "会話"
             P_TALK_HAND -> "会話"
+            P_TALK_ACCUSE -> "会話"
+            P_TALK_WHO -> "会話"
             P_FINAL -> "最終予告"
             P_ACT -> "実行"
             P_RESULT -> "結果"
@@ -367,6 +374,7 @@ class Game(ctx: Context) {
         if (round == 0) return false
         if (phase != P_DECLARE && phase != P_REVEAL &&
             phase != P_TALK && phase != P_TALK_HAND &&
+            phase != P_TALK_ACCUSE && phase != P_TALK_WHO &&
             phase != P_FINAL && phase != P_ACT
         ) {
             return false
@@ -390,6 +398,7 @@ class Game(ctx: Context) {
             out.add(
                 Seat(
                     a.name,
+                    a.color,
                     faceOf(a),
                     hand,
                     if (hand >= 0) def.cardAsset(hand) else null,
@@ -414,6 +423,7 @@ class Game(ctx: Context) {
             out.add(
                 Seat(
                     r.name,
+                    colorOf(r.id),
                     portraitOf(r.id),
                     r.actual,
                     def.cardAsset(r.actual),
@@ -432,6 +442,11 @@ class Game(ctx: Context) {
     private fun portraitOf(id: String): String {
         for (a in actors) if (a.id == id) return a.portrait
         return "char_player"
+    }
+
+    private fun colorOf(id: String): String {
+        for (a in actors) if (a.id == id) return a.color
+        return "#6E7684"
     }
 
     fun header(): String {
@@ -476,30 +491,39 @@ class Game(ctx: Context) {
                 list.add(Option("会話へ") { toTalk() })
             }
             P_TALK -> {
-                for (a in actors) {
-                    if (a.isPlayer) continue
-                    list.add(
-                        Option(a.name + "を追及する（当たり +" + stakes() + " / 外れ -" + stakes() + "）") {
-                            doAccuse(a)
-                        }
-                    )
-                }
-                for (a in actors) {
-                    if (a.isPlayer) continue
-                    list.add(Option(a.name + "に勧める") { pendingTarget = a; phase = P_TALK_HAND })
-                }
+                list.add(Option("誰かを追及する（当たり +" + stakes() + " / 外れ -" + stakes() + "）") {
+                    phase = P_TALK_ACCUSE
+                })
+                list.add(Option("誰かに手を勧める") { phase = P_TALK_WHO })
                 list.add(Option("何も言わない") { doSilent() })
+            }
+            P_TALK_ACCUSE -> {
+                for (a in actors) {
+                    if (a.isPlayer) continue
+                    list.add(Option(a.name + "を追及する", a.color) { doAccuse(a) })
+                }
+                list.add(Option("やめる") { phase = P_TALK })
+            }
+            P_TALK_WHO -> {
+                for (a in actors) {
+                    if (a.isPlayer) continue
+                    list.add(Option(a.name + "に勧める", a.color) {
+                        pendingTarget = a
+                        phase = P_TALK_HAND
+                    })
+                }
+                list.add(Option("やめる") { phase = P_TALK })
             }
             P_TALK_HAND -> {
                 val t = pendingTarget
                 if (t != null) {
                     for (h in def.claims.indices) {
-                        list.add(Option(t.name + "に「" + def.claims[h] + "」を勧める") {
+                        list.add(Option(t.name + "に「" + def.claims[h] + "」を勧める", t.color) {
                             doPersuade(t, h)
                         })
                     }
                 }
-                list.add(Option("やめる") { phase = P_TALK })
+                list.add(Option("やめる") { phase = P_TALK_WHO })
             }
             P_FINAL -> {
                 for (h in def.claims.indices) {
