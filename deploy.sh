@@ -8,6 +8,7 @@ if [ ! -d .git ]; then git init -b main; fi
 git remote remove origin 2>/dev/null
 git remote add origin "https://${GHUSER}:${TOKEN}@github.com/${GHUSER}/${REPO}.git"
 rm -f .github/workflows/build.yml
+rm -f app/src/main/java/com/appathy/shinrigame/Replay.kt
 git add -A
 git commit -m "${1:-update}"
 git pull --rebase origin main
