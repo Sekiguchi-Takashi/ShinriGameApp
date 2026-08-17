@@ -1,114 +1,71 @@
 package com.appathy.shinrigame
 
+import java.util.Random
+
+/** 宣告と本番の照らし合わせ */
+object Labels {
+    const val NONE = 0
+    const val HONEST = 1
+    const val LIAR = 2
+    const val TIMID = 3
+
+    fun name(v: Int): String {
+        return when (v) {
+            HONEST -> "正直者"
+            LIAR -> "嘘つき"
+            TIMID -> "小心者"
+            else -> "－"
+        }
+    }
+}
+
 /**
- * ゲームごとの差分を閉じ込める。
+ * ゲームごとの差分。
  *
- * ライフサイクル（予告 → 会話 → 最終予告 → 実行 → 結果）と
- * 心理まわり（嘘率・断言強度・台詞・信頼・観測記録）は全ゲーム共通で、
- * ここには一切書かない。ゲームを追加するときに書くのはこのファイルだけ。
+ * 流れ（予告 → 宣告 → 本番）と、勝ち方（Rules）と、
+ * 正直者・嘘つき・小心者の集計は共通側にある。
  */
 interface GameDef {
 
     val id: String
-
     val displayName: String
 
-    /** 予告できる選択肢のラベル */
+    /** 予告・宣告・本番で選べるもの */
     val claims: Array<String>
 
-    /** ラウンドごとの配点。要素数がラウンド数になる。 */
-    val stakes: IntArray
+    /** 宣告しないことを認めるか */
+    val allowSilence: Boolean
+        get() = true
 
-    /** score_gap を正規化するための想定満点 */
-    val scoreScale: Double
+    fun supports(rule: Int): Boolean
 
-    /** 参加できる AI の下限と上限。ゲームによって成立する人数が違う。 */
-    val minAi: Int
-    val maxAi: Int
+    /** AI がこの場面で選ぶもの。stage は "yokoku" / "sengoku" / "act"。 */
+    fun aiPick(self: Actor, others: List<Actor>, stage: String, rnd: Random): Int
 
-    /** 予告どおりに実行したときの加点 */
-    fun matchBonus(stakes: Int): Int
+    /** 1ラウンドの判定 */
+    fun resolve(participants: List<Actor>): RoundResult
 
-    /**
-     * 各選択肢の期待値。AI が予告する手を選ぶのに使う。
-     * 相手の予告と、その相手の予告一致率（信念）から算出する。
-     */
-    fun evaluate(actors: List<Actor>, self: Actor, stakes: Int, belief: (Actor) -> Double): DoubleArray
-
-    /** 得点計算。log に説明を追記する。 */
-    fun resolve(actors: List<Actor>, stakes: Int, log: (String) -> Unit)
-
-    /** 実行フェーズでプレイヤーに見せる説明 */
-    fun actPrompt(): String
-
-    /** ラウンド開始時の説明 */
-    fun roundPrompt(): String
-
-    /**
-     * その選択肢に対応するカード画像名。専用の絵がなければ null を返す。
-     * null のときは UI が claims のラベルで文字カードを描く。
-     */
-    fun cardAsset(claim: Int): String? = null
-}
-
-// ------------------------------------------------------------------ 共通
-
-/** 相手の予告と一致率から、その相手が実際に出す選択肢の確率分布を作る */
-fun claimBelief(o: Actor, size: Int, honesty: Double): DoubleArray {
-    val p = DoubleArray(size)
-    if (o.declared < 0) {
-        for (i in 0 until size) p[i] = 1.0 / size
-        return p
+    /** 宣告と本番から人柄を判定する */
+    fun label(a: Actor, participants: List<Actor>): Int {
+        if (a.sengoku < 0) return Labels.TIMID
+        if (a.sengoku == a.actual) return Labels.HONEST
+        return Labels.LIAR
     }
-    val rest = (1.0 - honesty) / (size - 1).toDouble()
-    for (i in 0 until size) p[i] = rest
-    p[o.declared] = honesty
-    return p
+
+    fun cardAsset(claim: Int): String? = null
+
+    fun prompt(stage: String): String
 }
 
-// ------------------------------------------------------------------ 予告じゃんけん
+// ------------------------------------------------------------------ じゃんけん
 
 class JankenGame : GameDef {
 
-    override val id = "yokoku_janken"
+    override val id = "janken"
     override val displayName = "予告じゃんけん"
     override val claims = arrayOf("グー", "チョキ", "パー")
-    override val stakes = intArrayOf(1, 1, 2, 1, 3)
-    override val scoreScale = 12.0
-    override val minAi = 2
-    override val maxAi = 5
 
-    override fun matchBonus(stakes: Int): Int = stakes
-
-    override fun evaluate(
-        actors: List<Actor>,
-        self: Actor,
-        stakes: Int,
-        belief: (Actor) -> Double
-    ): DoubleArray {
-        val score = DoubleArray(3)
-        for (o in actors) {
-            if (o === self) continue
-            if (o.declared < 0) continue
-            val p = claimBelief(o, 3, belief(o))
-            for (h in 0 until 3) {
-                for (i in 0 until 3) score[h] += p[i] * Engine.beats(h, i)
-            }
-        }
-        return score
-    }
-
-    override fun resolve(actors: List<Actor>, stakes: Int, log: (String) -> Unit) {
-        for (a in actors) {
-            var gained = 0
-            for (o in actors) {
-                if (o === a) continue
-                gained += Engine.beats(a.actual, o.actual) * stakes
-            }
-            if (a.declared == a.actual) gained += matchBonus(stakes)
-            a.score += gained
-        }
-    }
+    override fun supports(rule: Int) = true
 
     override fun cardAsset(claim: Int): String? {
         return when (claim) {
@@ -119,134 +76,174 @@ class JankenGame : GameDef {
         }
     }
 
-    override fun actPrompt(): String =
-        "実際に出す手を選んでください。予告と違う手を出すこともできます。"
+    override fun prompt(stage: String): String {
+        return when (stage) {
+            "yokoku" -> "何を出すつもりか予告してください。あとで変えてかまいません。"
+            "sengoku" -> "本番で出すものを宣告してください。黙っていることもできます。"
+            else -> "本番。実際に出すものを選んでください。"
+        }
+    }
 
-    override fun roundPrompt(): String =
-        "予告を選んでください。実際に出す手は後で決められます。"
+    /**
+     * 相手の宣告を見て決める。
+     * 性格によって、素直に受け取るか、裏を読むかが変わる。
+     */
+    override fun aiPick(self: Actor, others: List<Actor>, stage: String, rnd: Random): Int {
+        val c = self.character
+        if (stage == "yokoku") return rnd.nextInt(3)
+
+        if (stage == "sengoku") {
+            if (c != null && rnd.nextDouble() < silenceRate(c)) return -1
+            return rnd.nextInt(3)
+        }
+
+        // 本番。宣告どおりに出すかどうかは、その性格の嘘つきやすさで決まる。
+        val lieRate = if (c == null) 0.3 else c.baseLieRate
+        val keep = self.sengoku >= 0 && rnd.nextDouble() > lieRate
+        if (keep) return self.sengoku
+
+        // 相手の宣告に勝てるものを選ぶ
+        val score = DoubleArray(3)
+        var known = 0
+        for (o in others) {
+            if (o.sengoku < 0) continue
+            known++
+            for (h in 0 until 3) score[h] += Engine.beats(h, o.sengoku).toDouble()
+        }
+        if (known == 0) return rnd.nextInt(3)
+        if (rnd.nextDouble() < 0.2) return rnd.nextInt(3)
+
+        var best = 0
+        for (h in 1 until 3) if (score[h] > score[best]) best = h
+        return best
+    }
+
+    /** 弱く言いがちな性格ほど黙りやすい */
+    private fun silenceRate(c: Character): Double {
+        return Engine.clamp(0.08 + c.honest.low * 0.30, 0.05, 0.40)
+    }
+
+    override fun resolve(participants: List<Actor>): RoundResult {
+        val st = HashMap<String, Int>()
+        val notes = ArrayList<String>()
+        val present = HashSet<Int>()
+        for (a in participants) present.add(a.actual)
+
+        if (present.size != 2) {
+            for (a in participants) st[a.id] = 0
+            notes.add("あいこ")
+            return RoundResult(st, notes)
+        }
+
+        val two = present.toList()
+        val winner = if (Engine.beats(two[0], two[1]) == 1) two[0] else two[1]
+        for (a in participants) {
+            st[a.id] = if (a.actual == winner) 1 else -1
+        }
+        notes.add(claims[winner] + " の勝ち")
+        return RoundResult(st, notes)
+    }
 }
 
-// ------------------------------------------------------------------ 予告だるまさんがころんだ
+// ------------------------------------------------------------------ だるまさんがころんだ
 
 /**
- * 全員が同時に 0〜3 歩進む。
+ * 鬼がひとり出て「何カウントで振り向くか」を宣告する。
+ * 進む側は歩数を宣告して動く。振り向いたカウントを超えて動いた者は捕まる。
  *
- * 最も多く進むと予告した者が「見張られる」。
- * 見張られた者が実際にも最多を出し、それが単独か全員一致なら捕まって1歩下がる。
- * 一部だけが並んだ場合はセーフ。
- *
- * 予告が見張りを引き寄せるので、大きく言って小さく動く／小さく言って大きく動く、が成立する。
- *
- * 人数が増えると全員の予告が上限に張り付き、嘘つきが不利になりすぎる。
- * 実測で AI 5人だと BAIT の勝率が 13% まで落ちたため maxAi を 4 にしている。
+ * 鬼が宣告より早く振り向いた回は、少なく動いた者を小心者に数えない。
  */
 class DarumaGame : GameDef {
 
-    override val id = "yokoku_daruma"
+    override val id = "daruma"
     override val displayName = "予告だるまさんがころんだ"
     override val claims = arrayOf("0歩", "1歩", "2歩", "3歩")
-    override val stakes = intArrayOf(1, 1, 2, 1, 3)
-    override val scoreScale = 15.0
-    override val minAi = 2
-    override val maxAi = 4
 
-    override fun matchBonus(stakes: Int): Int = 1
+    override fun supports(rule: Int) = rule != Rules.TOURNAMENT
 
-    /** 最も多く進むと予告した者が見張られる。同数なら全員が見張られる。 */
-    private fun watched(actors: List<Actor>, a: Actor): Boolean {
-        var max = -1
-        for (o in actors) if (o.declared > max) max = o.declared
-        return a.declared == max
-    }
-
-    private fun caught(mine: Int, max: Int, count: Int, total: Int, watched: Boolean): Boolean {
-        if (!watched) return false
-        if (mine != max) return false
-        // 単独で突出した場合と、全員が横並びで動いた場合に捕まる。
-        // 一部だけ並んだときをセーフにしておかないと、大人数で予告が上限に張り付く。
-        return count == 1 || count == total
-    }
-
-    private fun payoff(mine: Int, others: IntArray, watched: Boolean): Int {
-        var max = mine
-        for (v in others) if (v > max) max = v
-        var count = if (mine == max) 1 else 0
-        for (v in others) if (v == max) count++
-        if (caught(mine, max, count, others.size + 1, watched)) return -1
-        return mine
-    }
-
-    override fun evaluate(
-        actors: List<Actor>,
-        self: Actor,
-        stakes: Int,
-        belief: (Actor) -> Double
-    ): DoubleArray {
-        val others = ArrayList<Actor>()
-        for (o in actors) {
-            if (o !== self && o.declared >= 0) others.add(o)
+    override fun prompt(stage: String): String {
+        return when (stage) {
+            "yokoku" -> "何歩進むつもりか予告してください。鬼なら何カウントで振り向くかです。"
+            "sengoku" -> "本番の歩数を宣告してください。黙っていることもできます。"
+            else -> "本番。実際に進む歩数を選んでください。"
         }
+    }
+
+    override fun aiPick(self: Actor, others: List<Actor>, stage: String, rnd: Random): Int {
+        val c = self.character
         val n = claims.size
-        val score = DoubleArray(n)
-        if (others.isEmpty()) return score
-
-        val probs = ArrayList<DoubleArray>()
-        for (o in others) probs.add(claimBelief(o, n, belief(o)))
-        val watched = watched(actors, self)
-
-        // 相手の組み合わせを全列挙する（人数が少ないので現実的）
-        val combo = IntArray(others.size)
-        var total = 1
-        for (i in others.indices) total *= n
-
-        for (k in 0 until total) {
-            var x = k
-            var w = 1.0
-            for (i in others.indices) {
-                combo[i] = x % n
-                x /= n
-                w *= probs[i][combo[i]]
-            }
-            if (w <= 0.0) continue
-            for (h in 0 until n) score[h] += w * payoff(h, combo, watched)
+        if (stage == "yokoku") return rnd.nextInt(n)
+        if (stage == "sengoku") {
+            if (c != null && rnd.nextDouble() < 0.18) return -1
+            return rnd.nextInt(n)
         }
-        return score
+
+        val lieRate = if (c == null) 0.3 else c.baseLieRate
+        if (self.sengoku >= 0 && rnd.nextDouble() > lieRate) return self.sengoku
+
+        // 鬼の宣告を信じて、その手前まで動く
+        var oniSengoku = -1
+        for (o in others) if (o.isOni) oniSengoku = o.sengoku
+        if (self.isOni) return rnd.nextInt(n)
+        if (oniSengoku >= 1) return rnd.nextInt(oniSengoku + 1)
+        return rnd.nextInt(n)
     }
 
-    override fun resolve(actors: List<Actor>, stakes: Int, log: (String) -> Unit) {
-        var max = -1
-        for (a in actors) if (a.actual > max) max = a.actual
-        var count = 0
-        for (a in actors) if (a.actual == max) count++
+    override fun resolve(participants: List<Actor>): RoundResult {
+        val st = HashMap<String, Int>()
+        val notes = ArrayList<String>()
 
-        val watchedNames = ArrayList<String>()
-        for (a in actors) if (watched(actors, a)) watchedNames.add(a.name)
-        log("見張られていたのは " + watchedNames.joinToString("、"))
+        var oni: Actor? = null
+        for (a in participants) if (a.isOni) oni = a
+        if (oni == null) {
+            for (a in participants) st[a.id] = 0
+            return RoundResult(st, notes)
+        }
 
-        var anyCaught = false
-        for (a in actors) {
-            val hit = caught(a.actual, max, count, actors.size, watched(actors, a))
-            var gained: Int
-            if (hit) {
-                gained = -1
-                anyCaught = true
-                log(a.name + " は見張られたまま動きすぎて捕まった（-1歩）")
+        val turnAt = oni.actual
+        notes.add(oni.name + "（鬼）は " + turnAt + " で振り向いた")
+
+        var maxStep = -1
+        for (a in participants) {
+            if (a.isOni) continue
+            if (a.actual <= turnAt && a.actual > maxStep) maxStep = a.actual
+        }
+
+        for (a in participants) {
+            if (a.isOni) {
+                st[a.id] = 0
+                continue
+            }
+            if (a.actual > turnAt) {
+                st[a.id] = -1
+                notes.add(a.name + " は動きすぎて捕まった")
+            } else if (a.actual == maxStep && maxStep > 0) {
+                st[a.id] = 1
             } else {
-                gained = a.actual
+                st[a.id] = 0
             }
-            // 捕まったラウンドは一致ボーナスを付けない。
-            if (a.declared == a.actual && !hit) gained += matchBonus(stakes)
-            a.score += gained
         }
-
-        if (!anyCaught) log("誰も捕まらなかった")
+        return RoundResult(st, notes)
     }
 
-    override fun actPrompt(): String =
-        "実際に進む歩数を選んでください。予告と違ってもかまいません。"
+    /**
+     * 宣告より多く動けば嘘つき、少なければ小心者。
+     * ただし鬼が宣告より早く振り向いた回は、少なく動いても数えない。
+     */
+    override fun label(a: Actor, participants: List<Actor>): Int {
+        if (a.sengoku < 0) return Labels.TIMID
+        if (a.sengoku == a.actual) return Labels.HONEST
+        if (a.actual > a.sengoku) return Labels.LIAR
 
-    override fun roundPrompt(): String =
-        "何歩進むか予告してください。最多を予告すると見張られます。"
+        if (!a.isOni) {
+            var oni: Actor? = null
+            for (o in participants) if (o.isOni) oni = o
+            if (oni != null && oni.sengoku >= 0 && oni.actual < oni.sengoku) {
+                return Labels.NONE
+            }
+        }
+        return Labels.TIMID
+    }
 }
 
 object Games {

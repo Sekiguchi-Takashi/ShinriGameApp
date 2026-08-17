@@ -166,24 +166,6 @@ class MainActivity : Activity() {
         }
     }
 
-    /** そのキャラがプレイヤーをどれだけ信じているか */
-    private fun trustBar(trust: Double): LinearLayout {
-        val row = LinearLayout(this)
-        row.orientation = LinearLayout.HORIZONTAL
-
-        val filled = Math.round(trust * 10).toInt()
-        for (i in 0 until 10) {
-            val cell = TextView(this)
-            cell.setBackgroundColor(
-                if (i < filled) Color.parseColor("#7ED2A0") else Color.parseColor("#8C7B63")
-            )
-            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
-            lp.rightMargin = 1
-            row.addView(cell, lp)
-        }
-        return row
-    }
-
     /** 予告フェーズは画面全体を細い赤枠で囲う */
     private fun applyFrame(declaring: Boolean) {
         val f = frame ?: return
@@ -199,11 +181,14 @@ class MainActivity : Activity() {
 
     private fun renderBanner(g: Game) {
         val b = banner ?: return
-        if (g.isDeclarePhase()) {
-            b.text = "◆ " + g.phaseLabel() + "フェーズ　この宣言は嘘でもかまいません ◆"
+        if (g.phase == Game.P_YOKOKU) {
+            b.text = "◆ 予告　あとで変えてかまいません ◆"
+            b.setTextColor(declareRed)
+        } else if (g.phase == Game.P_SENGOKU) {
+            b.text = "◆ 宣告　守れば正直者、破れば嘘つき、黙れば小心者 ◆"
             b.setTextColor(declareRed)
         } else {
-            b.text = g.phaseLabel() + "フェーズ"
+            b.text = g.stageLabel()
             b.setTextColor(inkSub)
         }
     }
@@ -211,7 +196,7 @@ class MainActivity : Activity() {
     private fun renderTable(g: Game) {
         val tr = tableRow ?: return
         tr.removeAllViews()
-        if (g.phase == Game.P_SELECT || g.phase == Game.P_ROSTER || g.phase == Game.P_END) {
+        if (g.phase <= Game.P_COUNT || g.phase == Game.P_END) {
             tr.visibility = android.view.View.GONE
             return
         }
@@ -226,8 +211,7 @@ class MainActivity : Activity() {
             else -> 68
         }
         val nameSize = if (seats <= 4) 12f else 9f
-        // 5席以上では、詳しい数字は省いて縦を詰める
-        val compact = seats >= 5
+
         for (seat in seatList) {
             val col = LinearLayout(this)
             col.orientation = LinearLayout.VERTICAL
@@ -237,6 +221,7 @@ class MainActivity : Activity() {
             val face = ImageView(this)
             face.setImageResource(portraitRes(seat.portrait))
             face.scaleType = ImageView.ScaleType.FIT_CENTER
+            face.alpha = if (seat.dim) 0.35f else 1f
             val fp = LinearLayout.LayoutParams(faceSize, faceSize)
             fp.bottomMargin = 4
             col.addView(face, fp)
@@ -282,32 +267,8 @@ class MainActivity : Activity() {
                 )
             }
 
-            if (!seat.isPlayer) {
-                col.addView(trustBar(seat.trust), LinearLayout.LayoutParams(faceSize - 20, 6))
-
-                val memo = TextView(this)
-                if (seat.memoCount > 0) {
-                    val r = Math.round(seat.memoRate * 100).toInt()
-                    memo.text = if (compact) r.toString() + "%"
-                    else "一致 " + r + "%\n" + seat.memoCount + "回"
-                } else {
-                    memo.text = if (compact) "－" else "未観測"
-                }
-                memo.textSize = if (seats <= 4) 10f else 8f
-                memo.gravity = Gravity.CENTER
-                memo.setTextColor(Color.parseColor("#FFF3DE"))
-                memo.setPadding(0, 3, 0, 0)
-                col.addView(
-                    memo,
-                    LinearLayout.LayoutParams(
-                        ViewGroup.LayoutParams.MATCH_PARENT,
-                        ViewGroup.LayoutParams.WRAP_CONTENT
-                    )
-                )
-            }
-
             val note = TextView(this)
-            note.text = if (compact) seat.note.replace("予告", "") else seat.note
+            note.text = seat.note
             note.textSize = if (seats <= 4) 11f else 8f
             note.gravity = Gravity.CENTER
             note.setTextColor(Color.parseColor("#FFF3DE"))
@@ -344,7 +305,7 @@ class MainActivity : Activity() {
 
     private fun render() {
         val g = game ?: return
-        applyFrame(g.isDeclarePhase())
+        applyFrame(g.isTalkPhase())
         renderBanner(g)
         header?.text = g.header()
         renderTable(g)
@@ -353,7 +314,7 @@ class MainActivity : Activity() {
         val bl = buttons ?: return
         bl.removeAllViews()
         val tint = when (g.phase) {
-            Game.P_DECLARE, Game.P_FINAL -> btnDeclare
+            Game.P_YOKOKU, Game.P_SENGOKU -> btnDeclare
             Game.P_ACT -> btnAct
             else -> 0
         }

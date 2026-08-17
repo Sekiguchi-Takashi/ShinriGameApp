@@ -1,16 +1,13 @@
 package com.appathy.shinrigame
 
 import android.content.Context
-import org.json.JSONObject
 import java.util.Random
 
 /** color は "#RRGGBB"。空ならフェーズごとの既定色を使う。 */
 class Option(val label: String, val color: String = "", val action: () -> Unit)
 
-/** emphasis は「疑わしさ（断言強度 high）」のみで決まる。真偽は絶対に渡さない。 */
 class LogLine(val text: String, val emphasis: Boolean)
 
-/** テーブル上の1席分 */
 class Seat(
     val name: String,
     val color: String,
@@ -19,10 +16,8 @@ class Seat(
     val cardAsset: String?,
     val cardLabel: String,
     val note: String,
-    val trust: Double,
     val isPlayer: Boolean,
-    val memoRate: Double,
-    val memoCount: Int
+    val dim: Boolean
 )
 
 class Actor(
@@ -33,368 +28,374 @@ class Actor(
     val portrait: String,
     val color: String
 ) {
-    var score = 0
-    var declared = -1
+    /** 予告。あとで変えてよい。人柄の判定には使わない。 */
+    var yokoku = -1
+
+    /** 宣告。-1 は黙っていたということ。 */
+    var sengoku = -1
+
+    /** 本番 */
     var actual = -1
-    var lying = false
-    var intensity = "mid"
 
-    var observedCount = 0
-    var observedMatch = 0
-    var highCount = 0
-    var highMatch = 0
+    var isOni = false
 
-    var trustInPlayer = 0.5
+    var honest = 0
+    var liar = 0
+    var timid = 0
 
-    fun matchRate(): Double {
-        if (observedCount == 0) return 0.5
-        return observedMatch.toDouble() / observedCount.toDouble()
-    }
+    fun labelTotal(): Int = honest + liar + timid
 
-    fun highMatchRate(): Double {
-        if (highCount == 0) return 0.5
-        return highMatch.toDouble() / highCount.toDouble()
+    fun dominant(): Int {
+        if (labelTotal() == 0) return Labels.NONE
+        if (honest >= liar && honest >= timid) return Labels.HONEST
+        if (liar >= timid) return Labels.LIAR
+        return Labels.TIMID
     }
 }
 
 class Game(ctx: Context) {
 
     companion object {
-        const val P_SELECT = -2
-        const val P_ROSTER = -1
-        const val P_DECLARE = 0
-        const val P_REVEAL = 1
-        const val P_TALK = 2
-        const val P_TALK_HAND = 3
-        const val P_FINAL = 4
+        const val P_GAME = 0
+        const val P_RULE = 1
+        const val P_COUNT = 2
+        const val P_YOKOKU = 3
+        const val P_SENGOKU = 4
         const val P_ACT = 5
         const val P_RESULT = 6
         const val P_END = 7
-        const val P_REPLAY = 8
-        const val P_IF = 9
-        const val P_TALK_ACCUSE = 10
-        const val P_TALK_WHO = 11
     }
 
     val memory = Memory(ctx)
     private val table = CharacterTable(Assets.read(ctx, "characters.json"))
-    private val dialogue = Dialogue(JSONObject(Assets.read(ctx, "dialogue_common.json")))
     private val rnd = Random()
 
     var def: GameDef = Games.all()[0]
         private set
+    var rule = Rules.SURVIVAL
+        private set
 
     val actors = ArrayList<Actor>()
     lateinit var player: Actor
+    private var match: Match? = null
 
-    var round = 0
-    var phase = P_SELECT
+    var phase = P_GAME
     val log = ArrayList<LogLine>()
-
-    private var pendingTarget: Actor? = null
-    private var persuadeTarget: Actor? = null
-    private var persuadeHand = -1
-    private var accuseTarget: Actor? = null
-    private var persuadeWorked = false
-
-    private var aiCount = 3
-
-    /** セッション中の全ラウンド。リプレイと IF シミュレーションの元になる。 */
-    val records = ArrayList<RoundRecord>()
-    private var replayIndex = 0
-    private var sessionCounted = false
 
     /** 画面側が拾って対戦画面へ移るための合図 */
     var wantVersus = false
 
-    /** 直前のラウンドで予告を破った者。会話の材料になる。 */
-    private val brokeLast = HashSet<String>()
+    private var oniIndex = 0
 
-    /** 直前のラウンドでプレイヤーが追及した相手 */
-    private var accusedLast: String? = null
+    /** 直前の判定で負けた者。結果画面で泣かせる。 */
+    private val lostNow = HashSet<String>()
 
-    /** このラウンドで負けた者。結果画面で泣かせる。 */
-    private val lostLast = HashSet<String>()
-
-    /** 前の回にだまされて負けた者。次のラウンドのあいだ怒った顔になる。 */
+    /** だまされて負けた者。次のラウンドのあいだ怒った顔になる。 */
     private val angryNow = HashSet<String>()
     private val angryNext = HashSet<String>()
-    private val lastLine = HashMap<String, String>()
 
     init {
-        toSelect()
+        toGameSelect()
     }
 
-    /** 参加者を組み直す。基本3人は必ず残り、増員分はミオ→モブの順で埋まる。 */
-    private fun buildRoster() {
-        actors.clear()
-        player = Actor(null, "player", "あなた", true, "char_player", "#6E7684")
-        actors.add(player)
-        for (id in table.roster(aiCount, memory.sessions())) {
-            val c = table.characters[id]
-            if (c != null) actors.add(Actor(c, c.id, c.name, false, c.portrait, c.color))
-        }
-    }
-
-    val totalRounds: Int
-        get() = def.stakes.size
-
-    fun stakes(): Int = def.stakes[round]
-
-    /** 予告を確定させるフェーズ。画面全体を赤枠で囲って区別する。 */
-    fun isDeclarePhase(): Boolean {
-        return phase == P_DECLARE || phase == P_FINAL
-    }
-
-    fun phaseLabel(): String {
-        return when (phase) {
-            P_SELECT -> "ゲーム選択"
-            P_ROSTER -> "参加者"
-            P_DECLARE -> "予告"
-            P_REVEAL -> "予告公開"
-            P_TALK -> "会話"
-            P_TALK_HAND -> "会話"
-            P_TALK_ACCUSE -> "会話"
-            P_TALK_WHO -> "会話"
-            P_FINAL -> "最終予告"
-            P_ACT -> "実行"
-            P_RESULT -> "結果"
-            P_REPLAY -> "リプレイ"
-            P_IF -> "もしも"
-            P_END -> "終了"
-            else -> "終了"
-        }
-    }
-
-    // ---------------------------------------------------------------- 状況
-
-    private fun situationFor(a: Actor): Situation {
-        var top = -999
-        for (o in actors) if (o.score > top) top = o.score
-
-        var rank = 0
-        for (o in actors) if (o.score > a.score) rank++
-
-        val endgame = round.toDouble() / (totalRounds - 1).toDouble()
-        val gap = Engine.clamp((top - a.score).toDouble() / def.scoreScale, 0.0, 1.0)
-        val risk = Engine.clamp(
-            (rank.toDouble() / (actors.size - 1).toDouble()) * endgame, 0.0, 1.0
-        )
-        val st = stakes().toDouble() / 3.0
-
-        return Situation(st, risk, gap, endgame)
-    }
-
-    /**
-     * その相手が予告を守る確率の見立て。
-     *
-     * 今セッションの観測に、過去の記録を上限つきで混ぜる。
-     * プレイヤーに対しても同じ計算を使うので、遊び込むほど AI 側もこちらを読んでくる。
-     */
-    private fun beliefHonesty(a: Actor): Double {
-        val pn = memory.priorCount(a.id)
-        val pm = memory.priorMatched(a.id)
-        val n = a.observedCount + pn
-        if (n == 0) return 0.5
-        val m = a.observedMatch + pm
-        return Engine.clamp(m.toDouble() / n.toDouble(), 0.15, 0.85)
-    }
-
-    // ---------------------------------------------------------------- AI
-
-    /** 期待値が最も高い選択肢を選ぶ（予告する候補） */
-    private fun aiChooseClaim(self: Actor): Int {
-        val n = def.claims.size
-        var known = 0
-        for (o in actors) if (o !== self && o.declared >= 0) known++
-        if (known == 0) return rnd.nextInt(n)
-
-        val score = def.evaluate(actors, self, stakes()) { beliefHonesty(it) }
-
-        var best = 0
-        for (h in 1 until n) if (score[h] > score[best]) best = h
-
-        // 完全最適化は避ける
-        if (rnd.nextDouble() < 0.15) return rnd.nextInt(n)
-        return best
-    }
-
-    /**
-     * 予告する。解決順序: 真偽 → claim → 強度 → 台詞（台詞に真偽は渡さない）。
-     * 実際の行動はここでは決めない。最終予告が出そろってから commit で決める。
-     */
-    private fun aiDeclare(a: Actor, hand: Int) {
-        val c = a.character ?: return
-        val rate = Engine.lieRate(c, situationFor(a))
-        a.lying = rnd.nextDouble() < rate
-        a.declared = hand
-        a.actual = -1
-        a.intensity = Engine.sampleIntensity(c, a.lying, rnd)
-    }
-
-    /**
-     * 実行。最終予告が出そろってから実際の行動を決める。
-     *
-     * 正直なら予告通りにする（読まれる代償を負う）。
-     * 嘘なら予告以外から、場の最終予告に対して最も強い選択肢を選ぶ。
-     * この順序でないと予告が誰にも作用せず、嘘が損なだけの選択肢になる。
-     */
-    private fun commit(a: Actor) {
-        if (!a.lying) {
-            a.actual = a.declared
-            return
-        }
-
-        val n = def.claims.size
-        val score = def.evaluate(actors, a, stakes()) { beliefHonesty(it) }
-
-        var best = -1
-        for (h in 0 until n) {
-            if (h == a.declared) continue
-            if (best < 0 || score[h] > score[best]) best = h
-        }
-        if (rnd.nextDouble() < 0.15) best = Engine.other(a.declared, n, rnd)
-        a.actual = best
-    }
-
-    private fun aiLine(a: Actor, intent: String, claim: String, target: String): String {
-        val c = a.character ?: return ""
-        return dialogue.pick(c.voiceId, intent, a.intensity, claim, target, rnd)
-    }
-
-    // ---------------------------------------------------------------- 進行
-
-    private fun toSelect() {
-        phase = P_SELECT
-        log.clear()
-        line("遊ぶゲームを選んでください。")
-        line("")
-        line("どちらも流れは同じです。予告し、会話し、最終予告を出し、")
-        line("そのあとで実際の行動を決めます。予告と違えてもかまいません。")
-    }
-
-    private fun toRoster(g: GameDef) {
-        def = g
-        phase = P_ROSTER
-        log.clear()
-        line(def.displayName)
-        line("")
-        line("参加人数を選んでください。")
-        line("")
-        val sessions = memory.sessions()
-        if (sessions < table.unlockAfterSessions) {
-            val left = table.unlockAfterSessions - sessions
-            line("あと " + left + " セッションで新しい相手が加わります。")
-        } else {
-            line("ミオが参加できるようになっています。")
-        }
-        line("このゲームは AI " + def.minAi + "〜" + def.maxAi + "人で成立します。")
-        line("解放済みの相手で足りない分は、名前だけの参加者で埋まります。")
-
-        val pn = memory.observed("player")
-        if (pn >= 3) {
-            val pr = Math.round(memory.matchRate("player") * 100).toInt()
-            line("")
-            line("【相手から見たあなた】")
-            line("　予告一致率 " + pr + "%（観測 " + pn + "回）")
-            line(readOfPlayer(pr))
-        }
-        line("観測を積み上げる相手は " + table.unlockedCount(sessions) + " 人までです。")
-    }
-
-    private fun startGame(n: Int) {
-        aiCount = n
-        buildRoster()
-        records.clear()
-        brokeLast.clear()
-        accusedLast = null
-        angryNow.clear()
-        angryNext.clear()
-        lostLast.clear()
-        sessionCounted = false
-        round = 0
-        for (a in actors) {
-            a.score = 0
-            a.observedCount = 0
-            a.observedMatch = 0
-            a.highCount = 0
-            a.highMatch = 0
-            a.trustInPlayer = memory.initialTrust()
-        }
-        beginRound()
-    }
-
-    private fun beginRound() {
-        for (a in actors) {
-            a.declared = -1
-            a.actual = -1
-            a.lying = false
-        }
-        persuadeTarget = null
-        persuadeHand = -1
-        accuseTarget = null
-        pendingTarget = null
-        persuadeWorked = false
-        lastLine.clear()
-        // 前の回の悔しさは、このラウンドのあいだだけ顔に出る
-        angryNow.clear()
-        angryNow.addAll(angryNext)
-        angryNext.clear()
-        lostLast.clear()
-        phase = P_DECLARE
-        log.clear()
-        line("── 第" + (round + 1) + "ラウンド（配点 " + stakes() + "）")
-        line(def.roundPrompt())
-    }
+    // ---------------------------------------------------------------- 準備
 
     private fun line(s: String, emphasis: Boolean = false) {
         log.add(LogLine(s, emphasis))
     }
 
-    private fun emph(a: Actor): Boolean {
-        return a.intensity == "high"
+    private fun toGameSelect() {
+        phase = P_GAME
+        log.clear()
+        line("遊ぶゲームを選んでください。")
+        line("")
+        line("流れはどちらも同じです。")
+        line("　予告　→　宣告　→　本番")
+        line("")
+        line("予告は言い換えてもかまいません。")
+        line("宣告どおりに出せば正直者、違えば嘘つき、")
+        line("黙っていれば小心者として数えます。")
+    }
+
+    private fun toRuleSelect(g: GameDef) {
+        def = g
+        phase = P_RULE
+        log.clear()
+        line(def.displayName)
+        line("")
+        line("勝ち方を選んでください。")
+        line("")
+        for (r in intArrayOf(Rules.SURVIVAL, Rules.TOURNAMENT, Rules.OPEN)) {
+            if (!def.supports(r)) continue
+            line("【" + Rules.name(r) + "】")
+            line("　" + Rules.summary(r))
+        }
+    }
+
+    private fun toCountSelect(r: Int) {
+        rule = r
+        phase = P_COUNT
+        log.clear()
+        line(def.displayName + "　" + Rules.name(rule))
+        line("")
+        line(Rules.summary(rule))
+        line("")
+        line("参加人数を選んでください。あなたを含めた数です。")
+    }
+
+    private fun start(total: Int) {
+        actors.clear()
+        player = Actor(null, "player", "あなた", true, "char_player", "#6E7684")
+        actors.add(player)
+        for (id in table.roster(total - 1, memory.sessions())) {
+            val c = table.characters[id]
+            if (c != null) actors.add(Actor(c, c.id, c.name, false, c.portrait, c.color))
+        }
+        match = Match(rule, actors)
+        oniIndex = 0
+        log.clear()
+        line("── " + def.displayName + "　" + Rules.name(rule))
+        line(Rules.summary(rule))
+        beginRound()
+    }
+
+    private fun beginRound() {
+        val m = match ?: return
+        for (a in actors) {
+            a.yokoku = -1
+            a.sengoku = -1
+            a.actual = -1
+            a.isOni = false
+        }
+
+        val ps = m.participants()
+        if (def.id == "daruma" && ps.isNotEmpty()) {
+            ps[oniIndex % ps.size].isOni = true
+            oniIndex++
+        }
+
+        angryNow.clear()
+        angryNow.addAll(angryNext)
+        angryNext.clear()
+        lostNow.clear()
+
+        line("")
+        line("── 第" + (m.round + 1) + "戦")
+        if (rule == Rules.TOURNAMENT) line(m.bracketLine())
+        for (a in ps) {
+            if (a.isOni) line(a.name + " が鬼です")
+        }
+        line(def.prompt("yokoku"))
+        phase = P_YOKOKU
+    }
+
+    private fun participants(): List<Actor> {
+        val m = match ?: return emptyList()
+        return m.participants()
+    }
+
+    private fun playerIn(): Boolean {
+        for (a in participants()) if (a.isPlayer) return true
+        return false
+    }
+
+    // ---------------------------------------------------------------- 進行
+
+    private fun doYokoku(h: Int) {
+        val ps = participants()
+        for (a in ps) {
+            if (a.isPlayer) continue
+            a.yokoku = def.aiPick(a, others(ps, a), "yokoku", rnd)
+        }
+        if (playerIn()) player.yokoku = h
+
+        line("")
+        line("【予告】")
+        for (a in ps) line("　" + a.name + "　" + claimText(a.yokoku))
+        line("")
+        line(def.prompt("sengoku"))
+        phase = P_SENGOKU
+    }
+
+    private fun doSengoku(h: Int) {
+        val ps = participants()
+        for (a in ps) {
+            if (a.isPlayer) continue
+            a.sengoku = def.aiPick(a, others(ps, a), "sengoku", rnd)
+        }
+        if (playerIn()) player.sengoku = h
+
+        line("")
+        line("【宣告】")
+        for (a in ps) {
+            val t = if (a.sengoku < 0) "黙っている" else claimText(a.sengoku)
+            line("　" + a.name + "　" + t, a.sengoku >= 0)
+        }
+        line("")
+        line(def.prompt("act"))
+        phase = P_ACT
+    }
+
+    private fun doAct(h: Int) {
+        val ps = participants()
+        for (a in ps) {
+            if (a.isPlayer) continue
+            a.actual = def.aiPick(a, others(ps, a), "act", rnd)
+        }
+        if (playerIn()) player.actual = h
+        resolve()
+    }
+
+    private fun others(ps: List<Actor>, self: Actor): List<Actor> {
+        val l = ArrayList<Actor>()
+        for (a in ps) if (a !== self) l.add(a)
+        return l
     }
 
     /**
-     * 表情を決める。画像名は portrait + 接尾辞。
-     *
-     * 負けた直後は泣き、だまされて負けた次の回は怒り、
-     * 予告の段階で点差が開いていると不安になる。
+     * 表情。画像名は portrait + 接尾辞。
+     * 負けた直後は泣き、だまされて負けた次の回は怒り、劣勢だと不安になる。
      */
     private fun faceOf(a: Actor): String {
         if (a.isPlayer) return a.portrait
-        if (phase == P_RESULT && lostLast.contains(a.id)) return a.portrait + "_cry"
+        if (phase == P_RESULT && lostNow.contains(a.id)) return a.portrait + "_cry"
         if (angryNow.contains(a.id)) return a.portrait + "_angry"
-        if (isBehind(a)) return a.portrait + "_anxious"
+        if ((phase == P_YOKOKU || phase == P_SENGOKU || phase == P_ACT) && isBehind(a)) {
+            return a.portrait + "_anxious"
+        }
         return a.portrait
     }
 
-    /** 予告から実行までのあいだ、劣勢なら不安になる */
+    /** 追い込まれているか。ルールによって意味が変わる。 */
     private fun isBehind(a: Actor): Boolean {
-        if (round == 0) return false
-        if (phase != P_DECLARE && phase != P_REVEAL &&
-            phase != P_TALK && phase != P_TALK_HAND &&
-            phase != P_TALK_ACCUSE && phase != P_TALK_WHO &&
-            phase != P_FINAL && phase != P_ACT
-        ) {
-            return false
+        val m = match ?: return false
+        return when (rule) {
+            Rules.SURVIVAL -> (m.strikes[a.id] ?: 0) >= Rules.STRIKES_OUT - 1
+            Rules.TOURNAMENT -> false
+            else -> {
+                if (m.round == 0) return false
+                var best = 0
+                for (o in actors) {
+                    val w = m.wins[o.id] ?: 0
+                    if (w > best) best = w
+                }
+                best - (m.wins[a.id] ?: 0) >= 2
+            }
         }
-        var top = a.score
-        for (o in actors) if (o.score > top) top = o.score
-        return top - a.score >= stakes() * 2
     }
 
-    /** 場に出ているカード。結果フェーズでは実際の行動を表にする。 */
-    fun table(): List<Seat> {
-        if (phase == P_REPLAY || phase == P_IF) return replayTable()
-        val out = ArrayList<Seat>()
-        val reveal = (phase == P_RESULT)
-        for (a in actors) {
-            val hand = if (reveal) a.actual else a.declared
-            var note = ""
-            if (reveal && a.declared >= 0) {
-                note = if (a.declared == a.actual) "予告通り" else "予告と違う"
+    private fun claimText(v: Int): String {
+        if (v < 0) return "－"
+        return def.claims[v]
+    }
+
+    private fun resolve() {
+        val m = match ?: return
+        val ps = participants()
+
+        line("")
+        line("【本番】")
+        for (a in ps) line("　" + a.name + "　" + claimText(a.actual))
+        line("")
+
+        val result = def.resolve(ps)
+
+        // 負けた者は泣く。嘘つきがいた回に負けた者は、次の回で怒る。
+        lostNow.clear()
+        for (a in ps) if ((result.status[a.id] ?: 0) < 0) lostNow.add(a.id)
+
+        var deceived = false
+        for (a in ps) if (def.label(a, ps) == Labels.LIAR) deceived = true
+        angryNext.clear()
+        if (deceived) {
+            for (a in ps) {
+                if (lostNow.contains(a.id) && def.label(a, ps) != Labels.LIAR) {
+                    angryNext.add(a.id)
+                }
             }
+        }
+
+        val ok = m.apply(result)
+
+        // 人柄を数える
+        for (a in ps) {
+            val lb = def.label(a, ps)
+            when (lb) {
+                Labels.HONEST -> a.honest++
+                Labels.LIAR -> a.liar++
+                Labels.TIMID -> a.timid++
+            }
+            if (lb != Labels.NONE) {
+                memory.recordLabel(a.id, lb)
+            }
+        }
+
+        for (n in m.log) line(n)
+        m.log.clear()
+
+        line("")
+        line("【この回の人柄】")
+        for (a in ps) {
+            line("　" + a.name + "　" + Labels.name(def.label(a, ps)))
+        }
+
+        if (!ok) {
+            line("")
+            line("引き分けなので、もう一度やり直します。")
+        }
+
+        phase = P_RESULT
+    }
+
+    // ---------------------------------------------------------------- 表示
+
+    fun header(): String {
+        if (phase <= P_COUNT) return "心理戦ゲーム"
+        val m = match ?: return def.displayName
+        val sb = StringBuilder()
+        sb.append(def.displayName).append("　").append(Rules.name(rule))
+        sb.append("　第").append(m.round + 1).append("戦\n")
+        for (a in actors) {
+            sb.append(a.name).append(" ").append(m.statusLine(a)).append("　")
+        }
+        return sb.toString()
+    }
+
+    fun stageLabel(): String {
+        return when (phase) {
+            P_GAME -> "ゲーム選択"
+            P_RULE -> "勝ち方"
+            P_COUNT -> "人数"
+            P_YOKOKU -> "予告"
+            P_SENGOKU -> "宣告"
+            P_ACT -> "本番"
+            P_RESULT -> "結果"
+            else -> "終了"
+        }
+    }
+
+    /** 予告と宣告は言葉の場面。赤枠で本番と区別する。 */
+    fun isTalkPhase(): Boolean = phase == P_YOKOKU || phase == P_SENGOKU
+
+    fun table(): List<Seat> {
+        val out = ArrayList<Seat>()
+        val m = match ?: return out
+        if (phase <= P_COUNT) return out
+
+        val ps = participants()
+        for (a in actors) {
+            val inRound = ps.contains(a)
+            val hand = when (phase) {
+                P_RESULT -> a.actual
+                P_ACT -> a.sengoku
+                P_SENGOKU -> a.yokoku
+                else -> -1
+            }
+            var note = m.statusLine(a)
+            if (phase == P_RESULT && inRound) {
+                note = Labels.name(def.label(a, ps))
+            }
+            if (a.isOni) note = "鬼　" + note
             out.add(
                 Seat(
                     a.name,
@@ -404,644 +405,129 @@ class Game(ctx: Context) {
                     if (hand >= 0) def.cardAsset(hand) else null,
                     if (hand >= 0) def.claims[hand] else "",
                     note,
-                    a.trustInPlayer,
                     a.isPlayer,
-                    if (a.isPlayer) -1.0 else memory.matchRate(a.id),
-                    if (a.isPlayer) 0 else memory.observed(a.id)
+                    !inRound
                 )
             )
         }
         return out
-    }
-
-    /** リプレイ中は、その回に実際に出たものを並べる */
-    private fun replayTable(): List<Seat> {
-        val out = ArrayList<Seat>()
-        if (records.isEmpty()) return out
-        val rec = records[replayIndex]
-        for (r in rec.acts) {
-            out.add(
-                Seat(
-                    r.name,
-                    colorOf(r.id),
-                    portraitOf(r.id),
-                    r.actual,
-                    def.cardAsset(r.actual),
-                    def.claims[r.actual],
-                    if (r.kept) "予告通り" else "予告と違う",
-                    0.0,
-                    true,
-                    -1.0,
-                    0
-                )
-            )
-        }
-        return out
-    }
-
-    private fun portraitOf(id: String): String {
-        for (a in actors) if (a.id == id) return a.portrait
-        return "char_player"
-    }
-
-    private fun colorOf(id: String): String {
-        for (a in actors) if (a.id == id) return a.color
-        return "#6E7684"
-    }
-
-    fun header(): String {
-        if (phase == P_SELECT || phase == P_ROSTER) return "心理戦ゲーム"
-        if (phase == P_REPLAY || phase == P_IF) {
-            val rec = if (records.isEmpty()) null else records[replayIndex]
-            val n = (rec?.index ?: 0) + 1
-            return def.displayName + "　リプレイ " + n + " / " + records.size
-        }
-        val sb = StringBuilder()
-        sb.append(def.displayName).append("　")
-        sb.append(round + 1).append(" / ").append(totalRounds)
-        sb.append("　配点 ").append(stakes()).append("\n")
-        for (a in actors) {
-            sb.append(a.name).append(" ").append(a.score).append("　")
-        }
-        return sb.toString()
     }
 
     fun options(): List<Option> {
         val list = ArrayList<Option>()
+        val m = match
         when (phase) {
-            P_SELECT -> {
-                for (g in Games.all()) {
-                    list.add(Option(g.displayName) { toRoster(g) })
-                }
+            P_GAME -> {
+                for (g in Games.all()) list.add(Option(g.displayName) { toRuleSelect(g) })
                 list.add(Option("2人対戦（同じ Wi-Fi）") { wantVersus = true })
             }
-            P_ROSTER -> {
-                for (n in def.minAi..def.maxAi) {
-                    if (n < 3) continue
-                    list.add(Option("あなた + AI " + n + "人") { startGame(n) })
+            P_RULE -> {
+                for (r in intArrayOf(Rules.SURVIVAL, Rules.TOURNAMENT, Rules.OPEN)) {
+                    if (!def.supports(r)) continue
+                    list.add(Option(Rules.name(r)) { toCountSelect(r) })
                 }
-                list.add(Option("ゲームを選び直す") { toSelect() })
+                list.add(Option("ゲームを選び直す") { toGameSelect() })
             }
-            P_DECLARE -> {
-                for (h in def.claims.indices) {
-                    list.add(Option("予告：" + def.claims[h]) { playerDeclare(h) })
+            P_COUNT -> {
+                for (n in Rules.playerCounts(rule)) {
+                    list.add(Option(n.toString() + "人で遊ぶ") { start(n) })
                 }
+                list.add(Option("勝ち方を選び直す") { toRuleSelect(def) })
             }
-            P_REVEAL -> {
-                list.add(Option("会話へ") { toTalk() })
-            }
-            P_TALK -> {
-                list.add(Option("誰かを追及する（当たり +" + stakes() + " / 外れ -" + stakes() + "）") {
-                    phase = P_TALK_ACCUSE
-                })
-                list.add(Option("誰かに手を勧める") { phase = P_TALK_WHO })
-                list.add(Option("何も言わない") { doSilent() })
-            }
-            P_TALK_ACCUSE -> {
-                for (a in actors) {
-                    if (a.isPlayer) continue
-                    list.add(Option(a.name + "を追及する", a.color) { doAccuse(a) })
-                }
-                list.add(Option("やめる") { phase = P_TALK })
-            }
-            P_TALK_WHO -> {
-                for (a in actors) {
-                    if (a.isPlayer) continue
-                    list.add(Option(a.name + "に勧める", a.color) {
-                        pendingTarget = a
-                        phase = P_TALK_HAND
-                    })
-                }
-                list.add(Option("やめる") { phase = P_TALK })
-            }
-            P_TALK_HAND -> {
-                val t = pendingTarget
-                if (t != null) {
+            P_YOKOKU -> {
+                if (playerIn()) {
                     for (h in def.claims.indices) {
-                        list.add(Option(t.name + "に「" + def.claims[h] + "」を勧める", t.color) {
-                            doPersuade(t, h)
-                        })
+                        list.add(Option("予告：" + def.claims[h]) { doYokoku(h) })
                     }
+                } else {
+                    list.add(Option("見届ける") { doYokoku(-1) })
                 }
-                list.add(Option("やめる") { phase = P_TALK_WHO })
             }
-            P_FINAL -> {
-                for (h in def.claims.indices) {
-                    list.add(Option("最終予告：" + def.claims[h]) { playerFinal(h) })
+            P_SENGOKU -> {
+                if (playerIn()) {
+                    for (h in def.claims.indices) {
+                        list.add(Option("宣告：" + def.claims[h]) { doSengoku(h) })
+                    }
+                    if (def.allowSilence) {
+                        list.add(Option("宣告しない（黙る）") { doSengoku(-1) })
+                    }
+                } else {
+                    list.add(Option("見届ける") { doSengoku(-1) })
                 }
             }
             P_ACT -> {
-                for (h in def.claims.indices) {
-                    list.add(Option("実行：" + def.claims[h]) { playerAct(h) })
+                if (playerIn()) {
+                    for (h in def.claims.indices) {
+                        list.add(Option("本番：" + def.claims[h]) { doAct(h) })
+                    }
+                } else {
+                    list.add(Option("見届ける") { doAct(-1) })
                 }
             }
             P_RESULT -> {
-                if (round + 1 < totalRounds) {
-                    list.add(Option("次のラウンドへ") { round++; beginRound() })
+                if (m != null && m.finished()) {
+                    list.add(Option("結果を見る") { finish() })
                 } else {
-                    list.add(Option("セッション結果を見る") { finish() })
+                    list.add(Option("次の戦いへ") { beginRound() })
                 }
-            }
-            P_REPLAY -> {
-                if (replayIndex > 0) {
-                    list.add(Option("前のラウンド") { toReplay(replayIndex - 1) })
-                }
-                if (replayIndex + 1 < records.size) {
-                    list.add(Option("次のラウンド") { toReplay(replayIndex + 1) })
-                }
-                list.add(Option("別の手を選んでいたら") { toIf() })
-                list.add(Option("リプレイを終える") { finish() })
-            }
-            P_IF -> {
-                list.add(Option("ラウンドに戻る") { toReplay(replayIndex) })
-                list.add(Option("リプレイを終える") { finish() })
             }
             P_END -> {
-                if (records.isNotEmpty()) {
-                    list.add(Option("リプレイを見る") { toReplay(0) })
-                }
-                list.add(Option("もう一度遊ぶ") { startGame(aiCount) })
-                list.add(Option("ゲームを選び直す") { toSelect() })
-                list.add(Option("累積の観測記録を消す") {
+                list.add(Option("もう一度") { toGameSelect() })
+                list.add(Option("人柄の記録を消す") {
                     memory.clear()
-                    toSelect()
+                    toGameSelect()
                 })
             }
         }
         return list
     }
 
-    // ---------------------------------------------------------------- 操作
-
-    private fun playerDeclare(h: Int) {
-        // 初回予告は同時。先に全員分を決めてから確定させ、
-        // 後から宣言するAIが先のAIの予告を見てしまうのを防ぐ。
-        val first = HashMap<Actor, Int>()
-        for (a in actors) {
-            if (a.isPlayer) continue
-            first[a] = aiChooseClaim(a)
-        }
-        for (a in actors) {
-            if (a.isPlayer) continue
-            aiDeclare(a, first[a] ?: rnd.nextInt(def.claims.size))
-        }
-        player.declared = h
-
-        line("")
-        line("【予告公開】")
-        for (a in actors) {
-            if (a.isPlayer) {
-                line("あなた：" + def.claims[a.declared])
-            } else {
-                val text = aiLine(a, "DECLARE", def.claims[a.declared], "")
-                lastLine[a.id] = text
-                line(a.name + "：「" + text + "」", emph(a))
-            }
-        }
-        phase = P_REVEAL
-    }
-
-    private fun toTalk() {
-        line("")
-        line("【会話】")
-        for (a in actors) {
-            if (a.isPlayer) continue
-            val talk = pickTalk(a)
-            val intent = talk.first
-            val target = talk.second
-            val claim = if (intent == "PERSUADE") {
-                def.claims[suggestClaim(a)]
-            } else {
-                def.claims[a.declared]
-            }
-            val text = aiLine(a, intent, claim, target.name)
-            line(a.name + "：「" + text + "」", emph(a))
-        }
-        line("")
-        line("あなたの行動を選んでください。")
-        phase = P_TALK
-    }
-
-    /**
-     * 誰に何を言うかを、その場の状況から決める。
-     *
-     * でたらめに喋らせると、発言がただの飾りになって読む材料にならない。
-     * 直前に何が起きたかを踏まえて話させることで、会話が観測の一部になる。
-     */
-    private fun pickTalk(a: Actor): Pair<String, Actor> {
-        // 前の回に追及された相手には弁明する
-        if (accusedLast == a.id) return Pair("DEFEND", player)
-
-        // 前の回に予告を破った者がいれば追及する
-        val breaker = pickBreaker(a)
-        if (breaker != null && rnd.nextDouble() < 0.75) {
-            return Pair("ACCUSE", breaker)
-        }
-
-        // 通算で予告を破りがちな相手なら、実績がなくても疑ってかかる
-        if (suspectsPlayer() && rnd.nextDouble() < 0.35) {
-            return Pair("ACCUSE", player)
-        }
-
-        // それ以外は首位を狙って勧める
-        val leader = leaderExcept(a)
-        if (leader != null && rnd.nextDouble() < 0.7) {
-            return Pair("PERSUADE", leader)
-        }
-        return Pair("DEFEND", randomOther(a))
-    }
-
-    private fun pickBreaker(a: Actor): Actor? {
-        val pool = ArrayList<Actor>()
-        for (o in actors) {
-            if (o === a) continue
-            if (brokeLast.contains(o.id)) pool.add(o)
-        }
-        if (pool.isEmpty()) return null
-        return pool[rnd.nextInt(pool.size)]
-    }
-
-    /** 通算の記録から見て、プレイヤーが予告を守らない側かどうか */
-    private fun suspectsPlayer(): Boolean {
-        if (memory.observed("player") < 5) return false
-        return memory.matchRate("player") < 0.45
-    }
-
-    private fun leaderExcept(a: Actor): Actor? {
-        var best: Actor? = null
-        for (o in actors) {
-            if (o === a) continue
-            if (best == null || o.score > best.score) best = o
-        }
-        return best
-    }
-
-    /**
-     * 相手には自分の予告と別の選択肢を勧める（半分は無作為にして撹乱する）。
-     * この時点で実際の行動は未確定なので、自分の予告を基準にする。
-     */
-    private fun suggestClaim(a: Actor): Int {
-        val n = def.claims.size
-        if (rnd.nextDouble() < 0.5) return rnd.nextInt(n)
-        if (a.declared < 0) return rnd.nextInt(n)
-        return Engine.other(a.declared, n, rnd)
-    }
-
-    private fun randomOther(a: Actor): Actor {
-        val pool = ArrayList<Actor>()
-        for (o in actors) if (o !== a) pool.add(o)
-        return pool[rnd.nextInt(pool.size)]
-    }
-
-    private fun doAccuse(a: Actor) {
-        accuseTarget = a
-        a.trustInPlayer = Engine.clamp(a.trustInPlayer - 0.1, 0.0, 1.0)
-        line("あなた：「" + a.name + "、その予告は嘘だ」")
-        toFinal()
-    }
-
-    private fun doPersuade(a: Actor, h: Int) {
-        persuadeTarget = a
-        persuadeHand = h
-        line("あなた：「" + a.name + "、" + def.claims[h] + "にしたほうがいい」")
-        toFinal()
-    }
-
-    private fun doSilent() {
-        line("あなた：（何も言わない）")
-        toFinal()
-    }
-
-    private fun toFinal() {
-        line("")
-        line("【最終予告】")
-        val chosen = HashMap<Actor, Int>()
-        for (a in actors) {
-            if (a.isPlayer) continue
-            var hand = aiChooseClaim(a)
-            val pt = persuadeTarget
-            if (pt === a && persuadeHand >= 0) {
-                if (rnd.nextDouble() < a.trustInPlayer * 0.5) {
-                    hand = persuadeHand
-                    persuadeWorked = true
-                }
-            }
-            chosen[a] = hand
-        }
-        for (a in actors) {
-            if (a.isPlayer) continue
-            aiDeclare(a, chosen[a] ?: rnd.nextInt(def.claims.size))
-            val text = aiLine(a, "DECLARE", def.claims[a.declared], "")
-            lastLine[a.id] = text
-            line(a.name + "：「" + text + "」", emph(a))
-        }
-        line("")
-        line("あなたの最終予告を選んでください。")
-        phase = P_FINAL
-    }
-
-    private fun playerFinal(h: Int) {
-        player.declared = h
-        // 全員の最終予告が出そろった。ここで AI の実際の行動が決まる。
-        for (a in actors) {
-            if (a.isPlayer) continue
-            commit(a)
-        }
-        line("")
-        line("あなたの最終予告：" + def.claims[h])
-        line(def.actPrompt())
-        phase = P_ACT
-    }
-
-    private fun playerAct(h: Int) {
-        player.actual = h
-        player.lying = player.declared != h
-        resolve()
-    }
-
-    // ---------------------------------------------------------------- 判定
-
-    private fun resolve() {
-        val st = stakes()
-        val before = HashMap<String, Int>()
-        for (a in actors) before[a.id] = a.score
-
-        line("")
-        line("【結果】")
-        for (a in actors) {
-            line(a.name + "　予告 " + def.claims[a.declared] + " → 実際 " + def.claims[a.actual])
-        }
-        line("")
-
-        def.resolve(actors, st) { line(it) }
-
-        for (a in actors) {
-            if (a.isPlayer) continue
-            a.observedCount++
-            if (a.declared == a.actual) a.observedMatch++
-            if (a.intensity == "high") {
-                a.highCount++
-                if (a.declared == a.actual) a.highMatch++
-            }
-            memory.record(a.id, a.declared == a.actual, a.intensity == "high")
-            if (a.declared == a.actual) {
-                a.trustInPlayer = Engine.clamp(a.trustInPlayer + 0.05, 0.0, 1.0)
-            }
-        }
-
-        player.observedCount++
-        if (player.declared == player.actual) player.observedMatch++
-        // AI 側もプレイヤーを観測する。読み合いを片側だけにしない。
-        memory.record("player", player.declared == player.actual, false)
-
-        val pt2 = persuadeTarget
-        if (pt2 != null) {
-            if (persuadeWorked && pt2.actual == persuadeHand) {
-                line("説得成立：" + pt2.name + "は勧めたとおりに動いた")
-            } else if (persuadeWorked) {
-                line("説得は届いたが裏切られた：" + pt2.name + "は勧めを予告して別のことをした")
-            } else {
-                line("説得不成立：" + pt2.name + "は勧めを聞き入れなかった")
-            }
-        }
-
-        val at = accuseTarget
-        if (at != null) {
-            if (at.declared != at.actual) {
-                player.score += st
-                line("看破成功：" + at.name + "は予告を破っていた（+" + st + "）")
-            } else {
-                player.score -= st
-                line("誤射：" + at.name + "は予告通りだった（-" + st + "）")
-                at.trustInPlayer = Engine.clamp(at.trustInPlayer - 0.1, 0.0, 1.0)
-            }
-        }
-
-        line("")
-        for (a in actors) {
-            line(a.name + "：" + a.score)
-        }
-
-        recordRound(st, before)
-        rememberForTalk(before)
-        phase = P_RESULT
-    }
-
-    /** 次のラウンドの会話と表情で使う材料を残す。beginRound では消さない。 */
-    private fun rememberForTalk(before: Map<String, Int>) {
-        brokeLast.clear()
-        for (a in actors) {
-            if (a.declared != a.actual) brokeLast.add(a.id)
-        }
-        accusedLast = accuseTarget?.id
-
-        // このラウンドで損をした者は泣く
-        lostLast.clear()
-        for (a in actors) {
-            val gain = a.score - (before[a.id] ?: 0)
-            if (gain < 0) lostLast.add(a.id)
-        }
-
-        // だまされて負けた者は、次のラウンドで怒った顔になる。
-        // 「損をした」かつ「予告を破った相手がいた」を条件にする。
-        angryNext.clear()
-        var deceived = false
-        for (a in actors) {
-            if (a.declared != a.actual) deceived = true
-        }
-        if (deceived) {
-            for (id in lostLast) {
-                if (!brokeLast.contains(id)) angryNext.add(id)
-            }
-        }
-    }
-
-    private fun recordRound(st: Int, before: Map<String, Int>) {
-        val acts = ArrayList<ActRecord>()
-        for (a in actors) {
-            acts.add(
-                ActRecord(
-                    a.id,
-                    a.name,
-                    a.isPlayer,
-                    a.declared,
-                    a.actual,
-                    a.intensity,
-                    lastLine[a.id] ?: ""
-                )
-            )
-        }
-        val after = HashMap<String, Int>()
-        for (a in actors) after[a.id] = a.score
-
-        val at = accuseTarget
-        records.add(
-            RoundRecord(
-                round,
-                st,
-                acts,
-                at?.name,
-                at != null && at.declared != at.actual,
-                persuadeTarget?.name,
-                persuadeHand,
-                persuadeWorked,
-                before,
-                after
-            )
-        )
-    }
+    // ---------------------------------------------------------------- 終了
 
     private fun finish() {
+        val m = match ?: return
         log.clear()
-        line("── " + def.displayName + " 終了")
+        line("── " + def.displayName + "　" + Rules.name(rule) + "　終了")
         line("")
 
-        var best = actors[0]
-        for (a in actors) if (a.score > best.score) best = a
-        line("勝者：" + best.name + "（" + best.score + "）")
-        line("")
-        line("【観測された傾向】")
-        line("断定ではなく、このセッションで観測された範囲の傾向です。")
+        val w = m.winners()
+        if (w.isEmpty()) {
+            line("勝者なし")
+        } else {
+            val sb = StringBuilder()
+            for (a in w) {
+                if (sb.isNotEmpty()) sb.append("、")
+                sb.append(a.name)
+            }
+            line("勝者　" + sb.toString())
+        }
         line("")
 
+        line("【このセッションの人柄】")
+        line("観測された回数です。決めつけではありません。")
+        line("")
         for (a in actors) {
-            if (a.isPlayer) continue
-            val n = a.observedCount
-            val rate = Math.round(a.matchRate() * 100).toInt()
-            val hr = Math.round(a.highMatchRate() * 100).toInt()
             line(a.name)
-            line("　予告一致率　" + rate + "%（観測 " + n + "回）")
-            if (a.highCount > 0) {
-                line("　強く断言した時の一致率　" + hr + "%（" + a.highCount + "回）")
-            } else {
-                line("　強く断言した場面はありませんでした")
+            line("　正直者 " + a.honest + "　嘘つき " + a.liar + "　小心者 " + a.timid)
+            if (a.labelTotal() > 0) {
+                line("　いちばん多かったのは " + Labels.name(a.dominant()))
             }
-            line("　確信度　" + confidence(n))
             line("")
         }
 
-        val pr = Math.round(player.matchRate() * 100).toInt()
-        line("あなた")
-        line("　予告一致率　" + pr + "%")
-        line("")
-
-        val pn = memory.observed("player")
-        if (pn > 0) {
-            val lr = Math.round(memory.matchRate("player") * 100).toInt()
-            line("【相手から見たあなた】")
-            line("　通算の予告一致率 " + lr + "%（観測 " + pn + "回）")
-            line(readOfPlayer(lr))
-            line("")
-        }
-
-        if (!sessionCounted) {
-            memory.finishSession()
-            sessionCounted = true
-        }
-        line("── これまでの累積観測（" + memory.sessions() + "セッション）")
+        memory.finishSession()
+        line("── 通算（" + memory.sessions() + "セッション）")
         line("")
         for (a in actors) {
-            if (a.isPlayer) continue
-            val n = memory.observed(a.id)
+            val n = memory.labelTotal(a.id)
             if (n == 0) continue
-            val r = Math.round(memory.matchRate(a.id) * 100).toInt()
-            line(a.name + "　一致率 " + r + "%　観測 " + n + "回　確信度 " + memory.confidence(a.id))
-            val hn = memory.highObserved(a.id)
-            if (hn > 0) {
-                val hr = Math.round(memory.highMatchRate(a.id) * 100).toInt()
-                line("　強く断言した時　一致率 " + hr + "%（" + hn + "回）")
-            }
+            line(
+                a.name + "　正直 " + memory.labelCount(a.id, Labels.HONEST) +
+                    "　嘘 " + memory.labelCount(a.id, Labels.LIAR) +
+                    "　小心 " + memory.labelCount(a.id, Labels.TIMID)
+            )
         }
         line("")
         phase = P_END
-    }
-
-    // ---------------------------------------------------------------- リプレイ
-
-    private fun toReplay(index: Int) {
-        replayIndex = Engine.clamp(index.toDouble(), 0.0, (records.size - 1).toDouble()).toInt()
-        val rec = records[replayIndex]
-        phase = P_REPLAY
-        log.clear()
-
-        line("── 第" + (rec.index + 1) + "ラウンド（配点 " + rec.stakes + "）")
-        line("")
-        line("終わったあとなので、誰が予告を守ったかが分かります。")
-        line("")
-
-        val diff = Replay.actual(rec)
-        for (r in rec.acts) {
-            val mark = if (r.kept) "守った" else "破った"
-            line(r.name + "　予告 " + def.claims[r.declared] + " → 実際 " + def.claims[r.actual] + "　" + mark)
-            if (r.line.isNotEmpty()) {
-                val strength = when (r.intensity) {
-                    "high" -> "強く"
-                    "low" -> "弱く"
-                    else -> ""
-                }
-                line("　" + strength + "「" + r.line + "」", r.intensity == "high")
-            }
-            line("　このラウンドの増減　" + signed(diff[r.id] ?: 0))
-            line("")
-        }
-
-        if (rec.accusedName != null) {
-            val res = if (rec.accuseHit) "看破成功" else "誤射"
-            line("あなたは " + rec.accusedName + " を追及した → " + res)
-        }
-        if (rec.persuadedName != null) {
-            val res = if (rec.persuadeHeard) "予告は動いた" else "聞き入れられなかった"
-            line("あなたは " + rec.persuadedName + " に " + def.claims[rec.persuadedClaim] + " を勧めた → " + res)
-        }
-    }
-
-    private fun toIf() {
-        val rec = records[replayIndex]
-        phase = P_IF
-        log.clear()
-
-        val me = rec.playerAct()
-        line("── 第" + (rec.index + 1) + "ラウンドのもしも")
-        line("")
-        line("他の参加者の行動は当時のまま固定して、")
-        line("あなたの行動だけを差し替えると、増減はこう変わります。")
-        line("")
-
-        val base = Replay.simulate(def, rec, me?.actual ?: 0)
-        val basePlayer = base["player"] ?: 0
-
-        for (h in def.claims.indices) {
-            val sim = Replay.simulate(def, rec, h)
-            val v = sim["player"] ?: 0
-            val d = v - basePlayer
-            val tag = if (me != null && h == me.actual) "　← 実際に選んだ手" else ""
-            val delta = if (d == 0) "" else "（" + signed(d) + "）"
-            line(def.claims[h] + "　" + signed(v) + " " + delta + tag)
-        }
-
-        line("")
-        line("予告は " + def.claims[me?.declared ?: 0] + " でした。")
-        line("予告どおりに動けば一致ボーナスが付き、外せば読み合いで有利になります。")
-    }
-
-    /** 相手側がプレイヤーをどう扱うかを、断定せずに伝える */
-    private fun readOfPlayer(rate: Int): String {
-        if (rate >= 70) {
-            return "　予告を守る相手だと見られています。勧めは通りやすいぶん、行動も読まれます。"
-        }
-        if (rate <= 35) {
-            return "　予告を破る相手だと見られています。行動は読まれにくいぶん、勧めは通りません。"
-        }
-        return "　まだ決めかねられています。"
-    }
-
-    private fun signed(v: Int): String {
-        return if (v > 0) "+" + v else v.toString()
-    }
-
-    private fun confidence(n: Int): String {
-        if (n <= 2) return "低（観測数が足りません）"
-        if (n <= 4) return "中"
-        return "高"
     }
 }

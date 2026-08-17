@@ -23,8 +23,8 @@ android {
         applicationId = "com.appathy.shinrigame"
         minSdk = 24
         targetSdk = 34
-        versionCode = 19
-        versionName = "1.4"
+        versionCode = 20
+        versionName = "2.0"
     }
 
     buildTypes {

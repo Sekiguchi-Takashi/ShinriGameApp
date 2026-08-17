@@ -79,6 +79,30 @@ class Memory(ctx: Context) {
         return if (v < 0.0) 0.0 else if (v > 1.0) 1.0 else v
     }
 
+    // ------------------------------------------------------------ 人柄
+
+    private fun key(id: String, label: Int): String {
+        val k = when (label) {
+            Labels.HONEST -> "h"
+            Labels.LIAR -> "l"
+            else -> "t"
+        }
+        return id + ".lab." + k
+    }
+
+    fun labelCount(id: String, label: Int): Int = sp.getInt(key(id, label), 0)
+
+    fun labelTotal(id: String): Int {
+        return labelCount(id, Labels.HONEST) +
+            labelCount(id, Labels.LIAR) +
+            labelCount(id, Labels.TIMID)
+    }
+
+    fun recordLabel(id: String, label: Int) {
+        if (label == Labels.NONE) return
+        sp.edit().putInt(key(id, label), labelCount(id, label) + 1).apply()
+    }
+
     /** 観測数に応じた確信度。断定を避けるための表示用。 */
     fun confidence(id: String): String {
         val n = observed(id)
