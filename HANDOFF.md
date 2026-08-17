@@ -3,7 +3,7 @@
 心理戦ゲームアプリ。予告じゃんけんと予告だるまさんがころんだ。
 起動時に ゲーム → 勝ち方 → 人数 の順に選ぶ。
 
-## 現状 v2.0
+## 現状 v2.0.1
 
 得点制をやめ、勝ち残り方式に組み替えた大きな変更。
 
@@ -108,12 +108,16 @@ NEXT|                次の戦いへ
 「2人で対戦」で自分が予告して自分で出した回だけ、1人用と同じ `Memory` の
 `id="player"` に足す。NPC を操った回は本人の予告ではないので数えない。
 
-## CI
+## CI（重要）
 
-`.github/workflows/build.yml` は push のたびに `assembleDebug` を回すだけ。
-**`actions/upload-artifact` を入れないこと。** Artifacts の無料枠（0.5GB）が枯れると
-"Artifact storage quota has been hit" でビルドごと失敗する。
-APK は Release から配るので、build.yml はコンパイル確認用と割り切る。
+**`.github/workflows/build.yml` は置かない。** 同梱もしない。
+push のたびに走らせると GitHub 側の制限に当たって必ず失敗する。
+
+CI はタグ起動の `release.yml` だけに一本化する。`release.yml` と `ci/` は
+カタログ管理システムが API 経由で入れてくるので、こちらからは触らない。
+
+`deploy.sh` は毎回 `rm -f .github/workflows/build.yml` を実行してから push する。
+ZIP を展開しても消えずに残ることがあるため、自動で片づける。
 
 ## 署名と配布
 
