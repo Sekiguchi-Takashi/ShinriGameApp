@@ -82,8 +82,9 @@ class Game(ctx: Context) {
     var phase = P_GAME
     val log = ArrayList<LogLine>()
 
-    /** 画面側が拾って対戦画面へ移るための合図 */
+    /** 画面側が拾って別の画面へ移るための合図 */
     var wantVersus = false
+    var wantChat = false
 
     private var oniIndex = 0
 
@@ -420,6 +421,7 @@ class Game(ctx: Context) {
             P_GAME -> {
                 for (g in Games.all()) list.add(Option(g.displayName) { toRuleSelect(g) })
                 list.add(Option("2人対戦（同じ Wi-Fi）") { wantVersus = true })
+                list.add(Option("チャット（同じ Wi-Fi）") { wantChat = true })
             }
             P_RULE -> {
                 for (r in intArrayOf(Rules.SURVIVAL, Rules.TOURNAMENT, Rules.OPEN)) {

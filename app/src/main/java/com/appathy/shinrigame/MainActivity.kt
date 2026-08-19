@@ -343,6 +343,10 @@ class MainActivity : Activity() {
                     g.wantVersus = false
                     startActivity(android.content.Intent(this, VersusActivity::class.java))
                 }
+                if (g.wantChat) {
+                    g.wantChat = false
+                    startActivity(android.content.Intent(this, ChatActivity::class.java))
+                }
                 render()
             }
             bl.addView(
